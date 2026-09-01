@@ -74,17 +74,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, [user, isLoading, pathname, router])
 
-  const login = async (email: string, password: string) => {
+  const login = async (email: string, passwordInput: string) => {
     setIsLoading(true)
     try {
       // Mock authentication
-      const foundUser = mockUsers.find((u) => u.email === email && u.password === password)
+      const foundUser = mockUsers.find((u) => u.email === email && u.password === passwordInput)
 
       if (!foundUser) {
         throw new Error("Invalid credentials")
       }
 
-      const { password: _, ...userWithoutPassword } = foundUser
+      const { password, ...userWithoutPassword } = foundUser
+      void password
       setUser(userWithoutPassword)
       localStorage.setItem("user", JSON.stringify(userWithoutPassword))
       router.push("/dashboard")

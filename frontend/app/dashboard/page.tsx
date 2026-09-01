@@ -19,7 +19,7 @@ export default function DashboardPage() {
       <div className="flex flex-col md:flex-row justify-between gap-4">
         <div>
           <h2 className="text-3xl font-bold tracking-tight">Dashboard</h2>
-          <p className="text-muted-foreground">Overview of your team's capacity and GitHub activity</p>
+          <p className="text-muted-foreground">Overview of your team&apos;s capacity and GitHub activity</p>
         </div>
         <div className="flex items-center gap-2">
           <Button variant="outline">
@@ -134,7 +134,7 @@ export default function DashboardPage() {
           <Card>
             <CardHeader>
               <CardTitle>Team Capacity Management</CardTitle>
-              <CardDescription>Manage and track your team's capacity across sprints</CardDescription>
+              <CardDescription>Manage and track your team&apos;s capacity across sprints</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <p>Detailed capacity management content will appear here.</p>

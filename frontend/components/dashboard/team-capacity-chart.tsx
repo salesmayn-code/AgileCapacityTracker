@@ -38,7 +38,7 @@ const mockData = [
 ]
 
 export function TeamCapacityChart() {
-  const [data, setData] = useState(mockData)
+  const [data] = useState(mockData)
   const [mounted, setMounted] = useState(false)
 
   useEffect(() => {

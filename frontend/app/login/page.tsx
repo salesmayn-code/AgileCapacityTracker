@@ -29,7 +29,7 @@ export default function LoginPage() {
         title: "Login successful",
         description: "You have been logged in successfully.",
       })
-    } catch (error) {
+    } catch {
       toast({
         title: "Login failed",
         description: "Invalid email or password. Please try again.",

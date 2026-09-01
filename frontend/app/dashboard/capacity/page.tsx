@@ -85,7 +85,7 @@ export default function CapacityPage() {
       <div className="flex justify-between items-center">
         <div>
           <h2 className="text-3xl font-bold tracking-tight">Capacity Management</h2>
-          <p className="text-muted-foreground">Track and manage your team's capacity</p>
+          <p className="text-muted-foreground">Track and manage your team&apos;s capacity</p>
         </div>
         <div className="flex gap-2">
           <Button variant="outline">

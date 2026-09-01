@@ -31,7 +31,7 @@ export default function Home() {
                   Agile Team Capacity Tracking
                 </h1>
                 <p className="mx-auto max-w-[700px] text-gray-500 md:text-xl dark:text-gray-400">
-                  Enhance your agile team's productivity with real-time capacity tracking and GitHub integration.
+                  Enhance your agile team&apos;s productivity with real-time capacity tracking and GitHub integration.
                 </p>
               </div>
               <div className="space-x-4">
