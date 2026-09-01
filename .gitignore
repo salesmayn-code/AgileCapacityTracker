@@ -37,6 +37,7 @@ build/
 ### Secrets / environment ###
 .env
 .env.*
+!.env.example
 application-local.properties
 *.pem
 *.key
