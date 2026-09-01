@@ -95,12 +95,6 @@ export default function LoginPage() {
                 Sign up
               </Link>
             </p>
-            <div className="mt-4 text-center text-sm text-gray-500">
-              <p>Demo accounts:</p>
-              <p>admin@example.com / password</p>
-              <p>lead@example.com / password</p>
-              <p>dev@example.com / password</p>
-            </div>
           </CardFooter>
         </form>
       </Card>
