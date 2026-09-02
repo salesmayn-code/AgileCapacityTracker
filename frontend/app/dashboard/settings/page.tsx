@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch"
 import { useToast } from "@/components/ui/use-toast"
 import { useAuth } from "@/components/auth-provider"
+import { getStoredGitHubToken, getWorkingHoursPerDay, setStoredGitHubToken, setWorkingHoursPerDay } from "@/lib/api"
 
 export default function SettingsPage() {
   const { user } = useAuth()
@@ -20,17 +21,35 @@ export default function SettingsPage() {
   const [capacityAlerts, setCapacityAlerts] = useState(true)
   const [sprintReminders, setSprintReminders] = useState(true)
 
+  useEffect(() => {
+    setGitHubToken(getStoredGitHubToken())
+    setWorkingHours(String(getWorkingHoursPerDay()))
+  }, [])
+
   const handleSaveGitHub = () => {
+    setStoredGitHubToken(gitHubToken.trim())
     toast({
       title: "GitHub settings saved",
-      description: "Your GitHub integration settings have been updated.",
+      description: gitHubToken.trim()
+        ? "Your token is stored locally in this browser."
+        : "No token set; the server's configured token will be used.",
     })
   }
 
   const handleSaveCapacity = () => {
+    const hours = Number.parseInt(workingHours, 10)
+    if (!Number.isFinite(hours) || hours < 1 || hours > 24) {
+      toast({
+        title: "Invalid value",
+        description: "Working hours per day must be between 1 and 24.",
+        variant: "destructive",
+      })
+      return
+    }
+    setWorkingHoursPerDay(hours)
     toast({
       title: "Capacity settings saved",
-      description: "Your capacity tracking settings have been updated.",
+      description: `Capacity percentages now assume ${hours} working hours per day.`,
     })
   }
 
