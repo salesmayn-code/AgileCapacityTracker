@@ -1,189 +1,103 @@
 "use client"
 
-import { useState } from "react"
+import { useCallback, useEffect, useState } from "react"
+import { api, getStoredGitHubToken, setStoredGitHubToken, type TaskDto } from "@/lib/api"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { Github, GitBranch, GitPullRequest, RefreshCw } from "lucide-react"
-
-// Mock repositories data
-const repositories = [
-  {
-    id: 1,
-    name: "frontend-app",
-    description: "React frontend application",
-    stars: 24,
-    forks: 8,
-    issues: 5,
-    pullRequests: 3,
-    lastUpdated: "2 days ago",
-  },
-  {
-    id: 2,
-    name: "backend-api",
-    description: "Node.js backend API",
-    stars: 18,
-    forks: 5,
-    issues: 2,
-    pullRequests: 1,
-    lastUpdated: "1 day ago",
-  },
-  {
-    id: 3,
-    name: "mobile-app",
-    description: "React Native mobile application",
-    stars: 12,
-    forks: 3,
-    issues: 8,
-    pullRequests: 2,
-    lastUpdated: "3 days ago",
-  },
-]
-
-// Mock pull requests data
-const pullRequests = [
-  {
-    id: 1,
-    title: "Add user authentication",
-    repository: "frontend-app",
-    author: {
-      name: "John Doe",
-      avatar: "/placeholder.svg?height=40&width=40",
-      initials: "JD",
-    },
-    status: "Open",
-    created: "1 day ago",
-    comments: 3,
-  },
-  {
-    id: 2,
-    title: "Fix API response handling",
-    repository: "backend-api",
-    author: {
-      name: "Sarah Smith",
-      avatar: "/placeholder.svg?height=40&width=40",
-      initials: "SS",
-    },
-    status: "Open",
-    created: "2 days ago",
-    comments: 5,
-  },
-  {
-    id: 3,
-    title: "Implement dark mode",
-    repository: "frontend-app",
-    author: {
-      name: "Mike Johnson",
-      avatar: "/placeholder.svg?height=40&width=40",
-      initials: "MJ",
-    },
-    status: "Merged",
-    created: "3 days ago",
-    comments: 2,
-  },
-  {
-    id: 4,
-    title: "Add push notifications",
-    repository: "mobile-app",
-    author: {
-      name: "Lisa Brown",
-      avatar: "/placeholder.svg?height=40&width=40",
-      initials: "LB",
-    },
-    status: "Open",
-    created: "1 day ago",
-    comments: 1,
-  },
-]
-
-// Mock issues data
-const issues = [
-  {
-    id: 1,
-    title: "Login page not responsive on mobile",
-    repository: "frontend-app",
-    assignee: {
-      name: "John Doe",
-      avatar: "/placeholder.svg?height=40&width=40",
-      initials: "JD",
-    },
-    status: "Open",
-    priority: "High",
-    created: "2 days ago",
-  },
-  {
-    id: 2,
-    title: "API rate limiting not working",
-    repository: "backend-api",
-    assignee: {
-      name: "Sarah Smith",
-      avatar: "/placeholder.svg?height=40&width=40",
-      initials: "SS",
-    },
-    status: "Open",
-    priority: "Medium",
-    created: "3 days ago",
-  },
-  {
-    id: 3,
-    title: "Dark mode toggle not saving preference",
-    repository: "frontend-app",
-    assignee: {
-      name: "Mike Johnson",
-      avatar: "/placeholder.svg?height=40&width=40",
-      initials: "MJ",
-    },
-    status: "Closed",
-    priority: "Low",
-    created: "5 days ago",
-  },
-  {
-    id: 4,
-    title: "Push notifications not working on iOS",
-    repository: "mobile-app",
-    assignee: {
-      name: "Lisa Brown",
-      avatar: "/placeholder.svg?height=40&width=40",
-      initials: "LB",
-    },
-    status: "Open",
-    priority: "High",
-    created: "1 day ago",
-  },
-]
+import { Github, RefreshCw, Trash2 } from "lucide-react"
+import { useToast } from "@/components/ui/use-toast"
 
 export default function GitHubPage() {
-  const [isConnected, setIsConnected] = useState(false)
+  const { toast } = useToast()
   const [token, setToken] = useState("")
+  const [isConnected, setIsConnected] = useState(false)
+  const [repoInput, setRepoInput] = useState("")
+  const [syncing, setSyncing] = useState(false)
+  const [tasks, setTasks] = useState<TaskDto[]>([])
+
+  useEffect(() => {
+    const stored = getStoredGitHubToken()
+    if (stored) {
+      setToken(stored)
+      setIsConnected(true)
+    }
+  }, [])
+
+  const loadTasks = useCallback(async () => {
+    try {
+      setTasks(await api.listTasks())
+    } catch {
+      // Task list is non-critical; leave previous data
+    }
+  }, [])
+
+  useEffect(() => {
+    void loadTasks()
+  }, [loadTasks])
 
   const handleConnect = () => {
     if (token.trim()) {
+      setStoredGitHubToken(token.trim())
       setIsConnected(true)
+      toast({ title: "GitHub connected", description: "Your token is stored locally in this browser." })
     }
   }
 
   const handleDisconnect = () => {
-    setIsConnected(false)
+    setStoredGitHubToken("")
     setToken("")
+    setIsConnected(false)
   }
+
+  const handleSync = async () => {
+    const repo = repoInput.trim()
+    if (!repo || !repo.includes("/")) {
+      toast({
+        title: "Invalid repository",
+        description: "Enter a repository as owner/name, e.g. octocat/hello-world.",
+        variant: "destructive",
+      })
+      return
+    }
+    setSyncing(true)
+    try {
+      const result = await api.syncRepo(repo, getStoredGitHubToken() || undefined)
+      toast({
+        title: "Sync complete",
+        description: `${result.imported} issue(s) imported, ${result.skipped} pull request(s) skipped.`,
+      })
+      await loadTasks()
+    } catch (error) {
+      toast({
+        title: "Sync failed",
+        description: error instanceof Error ? error.message : "Unknown error",
+        variant: "destructive",
+      })
+    } finally {
+      setSyncing(false)
+    }
+  }
+
+  const githubTasks = tasks.filter((t) => t.id.startsWith("GH-"))
 
   return (
     <div className="space-y-6">
       <div>
         <h2 className="text-3xl font-bold tracking-tight">GitHub Integration</h2>
-        <p className="text-muted-foreground">Connect and manage your GitHub repositories</p>
+        <p className="text-muted-foreground">Sync repository issues into your task list</p>
       </div>
 
       {!isConnected ? (
         <Card>
           <CardHeader>
             <CardTitle>Connect to GitHub</CardTitle>
-            <CardDescription>Connect your GitHub account to track contributions and capacity</CardDescription>
+            <CardDescription>
+              Provide a personal access token; it is sent per request to the backend and stored only in this browser.
+            </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-2">
@@ -196,7 +110,7 @@ export default function GitHubPage() {
                 onChange={(e) => setToken(e.target.value)}
               />
               <p className="text-sm text-muted-foreground">
-                Create a token with <code>repo</code> and <code>user</code> scopes in your GitHub settings.
+                Create a token with <code>repo</code> scope in your GitHub settings.
               </p>
             </div>
           </CardContent>
@@ -208,162 +122,97 @@ export default function GitHubPage() {
           </CardFooter>
         </Card>
       ) : (
-        <Tabs defaultValue="repositories" className="space-y-4">
-          <div className="flex justify-between items-center">
-            <TabsList>
-              <TabsTrigger value="repositories">Repositories</TabsTrigger>
-              <TabsTrigger value="pull-requests">Pull Requests</TabsTrigger>
-              <TabsTrigger value="issues">Issues</TabsTrigger>
-            </TabsList>
-            <div className="flex gap-2">
-              <Button variant="outline" size="sm">
-                <RefreshCw className="mr-2 h-4 w-4" />
-                Refresh Data
-              </Button>
-              <Button variant="outline" size="sm" onClick={handleDisconnect} className="text-red-500">
+        <div className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>Sync a Repository</CardTitle>
+              <CardDescription>
+                Open issues will be imported as tasks (id <code>GH-&lt;number&gt;</code>). Existing tasks are updated
+                in place.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex gap-2">
+                <Input
+                  placeholder="owner/repository"
+                  value={repoInput}
+                  onChange={(e) => setRepoInput(e.target.value)}
+                />
+                <Button onClick={handleSync} disabled={syncing || !repoInput.trim()}>
+                  <RefreshCw className={`mr-2 h-4 w-4 ${syncing ? "animate-spin" : ""}`} />
+                  {syncing ? "Syncing…" : "Sync Issues"}
+                </Button>
+              </div>
+            </CardContent>
+            <CardFooter>
+              <Button variant="outline" onClick={handleDisconnect} className="text-red-500">
                 Disconnect
               </Button>
-            </div>
-          </div>
+            </CardFooter>
+          </Card>
 
-          <TabsContent value="repositories" className="space-y-4">
-            <div className="rounded-md border">
-              <Table>
-                <TableHeader>
+          <div className="rounded-md border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Task ID</TableHead>
+                  <TableHead>Title</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Estimated Hours</TableHead>
+                  <TableHead>Assignee</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {githubTasks.length === 0 ? (
                   <TableRow>
-                    <TableHead>Repository</TableHead>
-                    <TableHead>Stars</TableHead>
-                    <TableHead>Forks</TableHead>
-                    <TableHead>Issues</TableHead>
-                    <TableHead>Pull Requests</TableHead>
-                    <TableHead>Last Updated</TableHead>
+                    <TableCell colSpan={6} className="text-center text-muted-foreground">
+                      No GitHub tasks yet. Sync a repository above to import issues.
+                    </TableCell>
                   </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {repositories.map((repo) => (
-                    <TableRow key={repo.id}>
-                      <TableCell className="font-medium">
-                        <div>
-                          <div className="font-semibold flex items-center">
-                            <GitBranch className="mr-2 h-4 w-4" />
-                            {repo.name}
-                          </div>
-                          <div className="text-sm text-muted-foreground">{repo.description}</div>
-                        </div>
-                      </TableCell>
-                      <TableCell>{repo.stars}</TableCell>
-                      <TableCell>{repo.forks}</TableCell>
-                      <TableCell>{repo.issues}</TableCell>
-                      <TableCell>{repo.pullRequests}</TableCell>
-                      <TableCell>{repo.lastUpdated}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          </TabsContent>
-
-          <TabsContent value="pull-requests" className="space-y-4">
-            <div className="rounded-md border">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Title</TableHead>
-                    <TableHead>Repository</TableHead>
-                    <TableHead>Author</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Created</TableHead>
-                    <TableHead>Comments</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {pullRequests.map((pr) => (
-                    <TableRow key={pr.id}>
+                ) : (
+                  githubTasks.map((task) => (
+                    <TableRow key={task.id}>
                       <TableCell className="font-medium">
                         <div className="flex items-center">
-                          <GitPullRequest className="mr-2 h-4 w-4" />
-                          {pr.title}
+                          <Github className="mr-2 h-4 w-4" />
+                          {task.id}
                         </div>
                       </TableCell>
-                      <TableCell>{pr.repository}</TableCell>
+                      <TableCell>{task.title}</TableCell>
                       <TableCell>
-                        <div className="flex items-center gap-2">
-                          <Avatar className="h-6 w-6">
-                            <AvatarImage src={pr.author.avatar || "/placeholder.svg"} alt={pr.author.name} />
-                            <AvatarFallback>{pr.author.initials}</AvatarFallback>
-                          </Avatar>
-                          <span>{pr.author.name}</span>
-                        </div>
+                        <Badge variant={task.status === "done" ? "default" : "outline"}>{task.status ?? "—"}</Badge>
                       </TableCell>
-                      <TableCell>
-                        <Badge variant={pr.status === "Merged" ? "default" : "outline"}>{pr.status}</Badge>
-                      </TableCell>
-                      <TableCell>{pr.created}</TableCell>
-                      <TableCell>{pr.comments}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          </TabsContent>
-
-          <TabsContent value="issues" className="space-y-4">
-            <div className="rounded-md border">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Title</TableHead>
-                    <TableHead>Repository</TableHead>
-                    <TableHead>Assignee</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Priority</TableHead>
-                    <TableHead>Created</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {issues.map((issue) => (
-                    <TableRow key={issue.id}>
-                      <TableCell className="font-medium">
-                        <div className="flex items-center">
-                          <span className="mr-2 h-2 w-2 rounded-full bg-red-500" />
-                          {issue.title}
-                        </div>
-                      </TableCell>
-                      <TableCell>{issue.repository}</TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-2">
-                          <Avatar className="h-6 w-6">
-                            <AvatarImage src={issue.assignee.avatar || "/placeholder.svg"} alt={issue.assignee.name} />
-                            <AvatarFallback>{issue.assignee.initials}</AvatarFallback>
-                          </Avatar>
-                          <span>{issue.assignee.name}</span>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant={issue.status === "Closed" ? "default" : "outline"}>{issue.status}</Badge>
-                      </TableCell>
-                      <TableCell>
-                        <Badge
-                          variant="outline"
-                          className={
-                            issue.priority === "High"
-                              ? "border-red-500 text-red-500"
-                              : issue.priority === "Medium"
-                                ? "border-yellow-500 text-yellow-500"
-                                : "border-green-500 text-green-500"
-                          }
+                      <TableCell>{task.estimatedHours || 0}h</TableCell>
+                      <TableCell>{task.assignedUsername ?? "—"}</TableCell>
+                      <TableCell className="text-right">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={async () => {
+                            try {
+                              await api.deleteTask(task.id)
+                              await loadTasks()
+                            } catch (error) {
+                              toast({
+                                title: "Failed to delete task",
+                                description: error instanceof Error ? error.message : "Unknown error",
+                                variant: "destructive",
+                              })
+                            }
+                          }}
                         >
-                          {issue.priority}
-                        </Badge>
+                          <Trash2 className="h-4 w-4 text-red-500" />
+                          <span className="sr-only">Delete task</span>
+                        </Button>
                       </TableCell>
-                      <TableCell>{issue.created}</TableCell>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          </TabsContent>
-        </Tabs>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          </div>
+        </div>
       )}
     </div>
   )
