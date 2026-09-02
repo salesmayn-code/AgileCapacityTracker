@@ -103,7 +103,31 @@ pnpm install
 pnpm dev                   # http://localhost:3000
 ```
 
-Other scripts: `pnpm lint`, `pnpm build`.
+Other scripts: `pnpm lint`, `pnpm test` (vitest), `pnpm build`.
+
+## Testing
+
+**Backend** — JUnit 5 + Spring Boot Test against an in-memory H2 database (no PostgreSQL needed):
+
+```bash
+mvn test
+```
+
+- Unit tests: `TrackerService` (validation + CRUD), `CapacityService` (workload math), `GitHubService` (token resolution), `TaskIdGenerator` (id format)
+- Integration test (`ApiIntegrationTest`): full CRUD flow over real HTTP — user/sprint/task lifecycle, workload math, cascade deletes, 400/404 error paths
+
+**Frontend** — Vitest + Testing Library (jsdom):
+
+```bash
+cd frontend
+pnpm test
+```
+
+- API client (request shapes, auth header, error propagation)
+- Settings helpers (localStorage persistence/fallbacks) and capacity-percent derivation
+- Mock auth flow (login, logout, session persistence, invalid credentials)
+
+**CI** — GitHub Actions runs backend `mvn verify` and frontend lint + test + build on every push/PR to `main` (`.github/workflows/ci.yml`). No secrets required: backend tests use H2, frontend tests mock `fetch`.
 
 ### Sign in
 
@@ -127,7 +151,6 @@ Authentication is a client-side mock (any API endpoint is open without it). Demo
 - **GitHub import is currently non-functional end-to-end** — the sync route cannot match `owner/name` repo paths (a slash cannot appear in a single path variable), so the frontend's sync call 404s. Additionally, imported issues carry no hour estimates, and re-syncing would duplicate tasks (the upsert key conflicts with the ID generator). Server-side logic is in place and unit-testable, but treat this feature as broken until fixed.
 - **Sprint length is hardcoded to 10 days** — in the backend (`CapacityService`) and in three frontend components; sprint start/end dates are stored but ignored by the math.
 - **Sprints cannot be edited** — only created and deleted.
-- **No automated tests** — zero test files in either app (planned next phase).
 - **Schema via `ddl-auto=update`** — no migration tooling (Flyway/Liquibase) yet.
 - **CORS pinned to `http://localhost:3000`** — not configurable.
 
@@ -145,9 +168,12 @@ Authentication is a client-side mock (any API endpoint is open without it). Demo
 │   ├── service/                   # TrackerService (CRUD), CapacityService, GitHubService
 │   └── util/TaskIdGenerator.java
 ├── src/main/resources/application.properties
+├── src/test/                        # JUnit + Spring Boot integration tests (H2)
+├── .github/workflows/ci.yml          # CI: backend verify + frontend lint/test/build
 ├── frontend/
 │   ├── app/                       # Next.js App Router (login + dashboard pages)
 │   ├── components/                # shadcn/ui + dashboard components (charts)
+│   ├── tests/                     # Vitest + Testing Library tests
 │   └── lib/api.ts                 # typed API client + settings helpers
 └── .env.example
 ```
