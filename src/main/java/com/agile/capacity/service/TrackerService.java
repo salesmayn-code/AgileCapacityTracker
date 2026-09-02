@@ -184,7 +184,11 @@ public class TrackerService {
         if (value == null || value.isBlank()) {
             return null;
         }
-        return LocalDate.parse(value, DATE);
+        try {
+            return LocalDate.parse(value, DATE);
+        } catch (java.time.format.DateTimeParseException e) {
+            throw badRequest("invalid date, expected YYYY-MM-DD: " + value);
+        }
     }
 
     private ResponseStatusException badRequest(String message) {
