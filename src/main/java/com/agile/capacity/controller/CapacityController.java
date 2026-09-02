@@ -1,21 +1,24 @@
 package com.agile.capacity.controller;
 
-import com.agile.capacity.entity.User;
+import com.agile.capacity.dto.Dtos.WorkloadDto;
 import com.agile.capacity.service.CapacityService;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
-import java.util.Map;
+
+import java.util.List;
 
 @RestController
 @RequestMapping("/api/capacity")
 public class CapacityController {
-    @Autowired
-    private CapacityService capacityService;
+    private final CapacityService capacityService;
+
+    public CapacityController(CapacityService capacityService) {
+        this.capacityService = capacityService;
+    }
 
     @GetMapping("/workload")
-    public Map<User, Integer> getWorkload() {
-        return capacityService.calculateWorkload();
+    public List<WorkloadDto> getWorkload() {
+        return capacityService.getWorkload();
     }
 }
