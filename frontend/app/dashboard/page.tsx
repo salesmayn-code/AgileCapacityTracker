@@ -1,6 +1,8 @@
 "use client"
 
+import { useEffect, useState } from "react"
 import { useAuth } from "@/components/auth-provider"
+import { api, getWorkingHoursPerDay, toCapacityPercent, type SprintDto, type UserDto, type WorkloadDto } from "@/lib/api"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
@@ -11,8 +13,48 @@ import { SprintProgress } from "@/components/dashboard/sprint-progress"
 import { RecentActivity } from "@/components/dashboard/recent-activity"
 import { GitHubStats } from "@/components/dashboard/github-stats"
 
+const SPRINT_DAYS = 10
+
+interface Overview {
+  teamCapacityPercent: number | null
+  activeSprints: number
+  githubTasks: number
+  teamMembers: number
+  overallocated: number
+}
+
 export default function DashboardPage() {
   const { user } = useAuth()
+  const [overview, setOverview] = useState<Overview | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    Promise.all([api.getWorkload(), api.listSprints(), api.listUsers(), api.listTasks()])
+      .then(([workload, sprints, users, tasks]: [WorkloadDto[], SprintDto[], UserDto[], import("@/lib/api").TaskDto[]]) => {
+        if (cancelled) return
+        const workingHours = getWorkingHoursPerDay()
+        const activeSprints = sprints.filter((s) => {
+          if (!s.startDate || !s.endDate) return false
+          const today = new Date()
+          return today >= new Date(s.startDate) && today <= new Date(s.endDate)
+        }).length
+        const percents = workload.map((w) => toCapacityPercent(w, SPRINT_DAYS, workingHours))
+        const overallocated = workload.filter((w) => w.usedHours > w.allocatedHours).length
+        setOverview({
+          teamCapacityPercent: percents.length ? Math.round(percents.reduce((a, b) => a + b, 0) / percents.length) : null,
+          activeSprints,
+          githubTasks: tasks.filter((t) => t.id.startsWith("GH-")).length,
+          teamMembers: users.length,
+          overallocated,
+        })
+      })
+      .catch(() => {
+        if (!cancelled) setOverview(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   return (
     <div className="space-y-6">
@@ -36,7 +78,7 @@ export default function DashboardPage() {
         <Alert>
           <AlertCircle className="h-4 w-4" />
           <AlertTitle>GitHub Not Connected</AlertTitle>
-          <AlertDescription>Connect your GitHub account to track your contributions and capacity.</AlertDescription>
+          <AlertDescription>Connect your GitHub account on the GitHub page to sync repository issues.</AlertDescription>
         </Alert>
       )}
 
@@ -54,8 +96,8 @@ export default function DashboardPage() {
                 <BarChart3 className="h-4 w-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">78%</div>
-                <p className="text-xs text-muted-foreground">+2% from last sprint</p>
+                <div className="text-2xl font-bold">{overview?.teamCapacityPercent ?? "—"}{overview?.teamCapacityPercent != null ? "%" : ""}</div>
+                <p className="text-xs text-muted-foreground">average used capacity</p>
               </CardContent>
             </Card>
             <Card>
@@ -64,18 +106,18 @@ export default function DashboardPage() {
                 <Users className="h-4 w-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">2</div>
-                <p className="text-xs text-muted-foreground">1 ending in 5 days</p>
+                <div className="text-2xl font-bold">{overview?.activeSprints ?? "—"}</div>
+                <p className="text-xs text-muted-foreground">currently running</p>
               </CardContent>
             </Card>
             <Card>
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Pull Requests</CardTitle>
+                <CardTitle className="text-sm font-medium">GitHub Tasks</CardTitle>
                 <Github className="h-4 w-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">12</div>
-                <p className="text-xs text-muted-foreground">5 awaiting review</p>
+                <div className="text-2xl font-bold">{overview?.githubTasks ?? "—"}</div>
+                <p className="text-xs text-muted-foreground">synced from repositories</p>
               </CardContent>
             </Card>
             <Card>
@@ -84,8 +126,8 @@ export default function DashboardPage() {
                 <Users className="h-4 w-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">8</div>
-                <p className="text-xs text-muted-foreground">2 overallocated</p>
+                <div className="text-2xl font-bold">{overview?.teamMembers ?? "—"}</div>
+                <p className="text-xs text-muted-foreground">{overview ? `${overview.overallocated} overallocated` : ""}</p>
               </CardContent>
             </Card>
           </div>
@@ -137,7 +179,7 @@ export default function DashboardPage() {
               <CardDescription>Manage and track your team&apos;s capacity across sprints</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <p>Detailed capacity management content will appear here.</p>
+              <TeamCapacityChart />
             </CardContent>
           </Card>
         </TabsContent>
@@ -148,7 +190,7 @@ export default function DashboardPage() {
               <CardDescription>Connect and manage your GitHub repositories</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <p>GitHub integration settings and data will appear here.</p>
+              <p>Open the GitHub page to connect a token and sync repository issues.</p>
             </CardContent>
           </Card>
         </TabsContent>
