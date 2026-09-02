@@ -13,8 +13,14 @@ public class User {
     @Column(nullable = false, unique = true)
     private String username;
 
+    @Column(unique = true)
+    private String email;
+
     @Column(nullable = false)
-    private String role; // Admin, Team Lead, Developer
+    private String role; // admin, team_lead, developer
+
+    @Column(name = "github_username")
+    private String githubUsername;
 
     @Column(name = "daily_capacity_hours")
     private int dailyCapacityHours;
@@ -27,8 +33,12 @@ public class User {
     public void setId(Long id) { this.id = id; }
     public String getUsername() { return username; }
     public void setUsername(String username) { this.username = username; }
+    public String getEmail() { return email; }
+    public void setEmail(String email) { this.email = email; }
     public String getRole() { return role; }
     public void setRole(String role) { this.role = role; }
+    public String getGithubUsername() { return githubUsername; }
+    public void setGithubUsername(String githubUsername) { this.githubUsername = githubUsername; }
     public int getDailyCapacityHours() { return dailyCapacityHours; }
     public void setDailyCapacityHours(int dailyCapacityHours) { this.dailyCapacityHours = dailyCapacityHours; }
     public List<Task> getTasks() { return tasks; }

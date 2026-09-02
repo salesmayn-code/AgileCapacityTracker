@@ -2,6 +2,7 @@ package com.agile.capacity.entity;
 
 import jakarta.persistence.*;
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.List;
 
 @Entity
@@ -17,7 +18,7 @@ public class Sprint {
     private LocalDate endDate;
 
     @OneToMany(mappedBy = "sprint", cascade = CascadeType.ALL)
-    private List<Task> tasks;
+    private List<Task> tasks = new ArrayList<>();
 
     // Getters and Setters
     public Long getId() { return id; }

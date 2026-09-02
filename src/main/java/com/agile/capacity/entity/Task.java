@@ -15,6 +15,7 @@ public class Task {
 
     private String title;
     private int estimatedHours;
+    private String status;
 
     @ManyToOne
     @JoinColumn(name = "user_id")
@@ -31,6 +32,8 @@ public class Task {
     public void setTitle(String title) { this.title = title; }
     public int getEstimatedHours() { return estimatedHours; }
     public void setEstimatedHours(int estimatedHours) { this.estimatedHours = estimatedHours; }
+    public String getStatus() { return status; }
+    public void setStatus(String status) { this.status = status; }
     public User getAssignedUser() { return assignedUser; }
     public void setAssignedUser(User assignedUser) { this.assignedUser = assignedUser; }
     public Sprint getSprint() { return sprint; }
