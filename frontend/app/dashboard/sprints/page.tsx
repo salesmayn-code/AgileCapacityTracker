@@ -1,6 +1,7 @@
 "use client"
 
-import { useState } from "react"
+import { useCallback, useEffect, useState } from "react"
+import { api, type SprintDto } from "@/lib/api"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -16,57 +17,92 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { Badge } from "@/components/ui/badge"
-import { Calendar, CalendarIcon, Plus } from "lucide-react"
-import { SprintProgress } from "@/components/dashboard/sprint-progress"
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { Calendar as CalendarComponent } from "@/components/ui/calendar"
+import { Calendar, Plus, Trash2 } from "lucide-react"
 import { format } from "date-fns"
+import { useToast } from "@/components/ui/use-toast"
 
-// Mock sprints data
-const sprints = [
-  {
-    id: "1",
-    name: "Sprint 1",
-    startDate: "2024-04-01",
-    endDate: "2024-04-14",
-    status: "Completed",
-    progress: 100,
-    capacity: 85,
-    storyPoints: 45,
-    completed: 45,
-  },
-  {
-    id: "2",
-    name: "Sprint 2",
-    startDate: "2024-04-15",
-    endDate: "2024-04-28",
-    status: "In Progress",
-    progress: 65,
-    capacity: 80,
-    storyPoints: 50,
-    completed: 32,
-  },
-  {
-    id: "3",
-    name: "Sprint 3",
-    startDate: "2024-04-29",
-    endDate: "2024-05-12",
-    status: "Planned",
-    progress: 0,
-    capacity: 75,
-    storyPoints: 48,
-    completed: 0,
-  },
-]
+function sprintStatus(sprint: SprintDto): "Completed" | "In Progress" | "Planned" {
+  if (!sprint.startDate || !sprint.endDate) return "Planned"
+  const today = new Date()
+  const start = new Date(sprint.startDate)
+  const end = new Date(sprint.endDate)
+  if (today > end) return "Completed"
+  if (today >= start) return "In Progress"
+  return "Planned"
+}
+
+function daysRemaining(sprint: SprintDto): number | null {
+  if (!sprint.endDate) return null
+  const diff = new Date(sprint.endDate).getTime() - Date.now()
+  return Math.max(0, Math.ceil(diff / (24 * 60 * 60 * 1000)))
+}
 
 export default function SprintsPage() {
+  const { toast } = useToast()
+  const [sprints, setSprints] = useState<SprintDto[]>([])
+  const [loading, setLoading] = useState(true)
   const [isAddSprintOpen, setIsAddSprintOpen] = useState(false)
   const [newSprint, setNewSprint] = useState({
     name: "",
     startDate: new Date(),
-    endDate: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000), // 2 weeks from now
-    storyPoints: 45,
+    endDate: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000),
   })
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    try {
+      setSprints(await api.listSprints())
+    } catch (error) {
+      toast({
+        title: "Failed to load sprints",
+        description: error instanceof Error ? error.message : "Unknown error",
+        variant: "destructive",
+      })
+    } finally {
+      setLoading(false)
+    }
+  }, [toast])
+
+  useEffect(() => {
+    void load()
+  }, [load])
+
+  const handleCreate = async () => {
+    try {
+      await api.createSprint({
+        name: newSprint.name,
+        startDate: format(newSprint.startDate, "yyyy-MM-dd"),
+        endDate: format(newSprint.endDate, "yyyy-MM-dd"),
+      })
+      toast({ title: "Sprint created", description: `${newSprint.name} has been created.` })
+      setIsAddSprintOpen(false)
+      setNewSprint({ name: "", startDate: new Date(), endDate: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000) })
+      await load()
+    } catch (error) {
+      toast({
+        title: "Failed to create sprint",
+        description: error instanceof Error ? error.message : "Unknown error",
+        variant: "destructive",
+      })
+    }
+  }
+
+  const handleDelete = async (id: number) => {
+    try {
+      await api.deleteSprint(id)
+      toast({ title: "Sprint deleted" })
+      await load()
+    } catch (error) {
+      toast({
+        title: "Failed to delete sprint",
+        description: error instanceof Error ? error.message : "Unknown error",
+        variant: "destructive",
+      })
+    }
+  }
+
+  const current = sprints.find((s) => sprintStatus(s) === "In Progress")
+  const currentDaysLeft = current ? daysRemaining(current) : null
 
   return (
     <div className="space-y-6">
@@ -103,59 +139,23 @@ export default function SprintsPage() {
                 <Label htmlFor="startDate" className="text-right">
                   Start Date
                 </Label>
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <Button variant="outline" className="col-span-3 justify-start text-left font-normal">
-                      <CalendarIcon className="mr-2 h-4 w-4" />
-                      {format(newSprint.startDate, "PPP")}
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-auto p-0">
-                    <CalendarComponent
-                      mode="single"
-                      selected={newSprint.startDate}
-                      onSelect={(date) => setNewSprint({ ...newSprint, startDate: date || new Date() })}
-                      initialFocus
-                    />
-                  </PopoverContent>
-                </Popover>
+                <Input
+                  id="startDate"
+                  type="date"
+                  value={format(newSprint.startDate, "yyyy-MM-dd")}
+                  onChange={(e) => setNewSprint({ ...newSprint, startDate: new Date(e.target.value) })}
+                  className="col-span-3"
+                />
               </div>
               <div className="grid grid-cols-4 items-center gap-4">
                 <Label htmlFor="endDate" className="text-right">
                   End Date
                 </Label>
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <Button variant="outline" className="col-span-3 justify-start text-left font-normal">
-                      <CalendarIcon className="mr-2 h-4 w-4" />
-                      {format(newSprint.endDate, "PPP")}
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-auto p-0">
-                    <CalendarComponent
-                      mode="single"
-                      selected={newSprint.endDate}
-                      onSelect={(date) => setNewSprint({ ...newSprint, endDate: date || new Date() })}
-                      initialFocus
-                    />
-                  </PopoverContent>
-                </Popover>
-              </div>
-              <div className="grid grid-cols-4 items-center gap-4">
-                <Label htmlFor="storyPoints" className="text-right">
-                  Story Points
-                </Label>
                 <Input
-                  id="storyPoints"
-                  type="number"
-                  min="1"
-                  value={newSprint.storyPoints}
-                  onChange={(e) =>
-                    setNewSprint({
-                      ...newSprint,
-                      storyPoints: Number.parseInt(e.target.value),
-                    })
-                  }
+                  id="endDate"
+                  type="date"
+                  value={format(newSprint.endDate, "yyyy-MM-dd")}
+                  onChange={(e) => setNewSprint({ ...newSprint, endDate: new Date(e.target.value) })}
                   className="col-span-3"
                 />
               </div>
@@ -164,7 +164,9 @@ export default function SprintsPage() {
               <Button variant="outline" onClick={() => setIsAddSprintOpen(false)}>
                 Cancel
               </Button>
-              <Button onClick={() => setIsAddSprintOpen(false)}>Create Sprint</Button>
+              <Button onClick={handleCreate} disabled={!newSprint.name.trim()}>
+                Create Sprint
+              </Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
@@ -173,28 +175,37 @@ export default function SprintsPage() {
       <Card>
         <CardHeader>
           <CardTitle>Current Sprint</CardTitle>
-          <CardDescription>Sprint 2 (April 15 - April 28, 2024)</CardDescription>
+          <CardDescription>
+            {current
+              ? `${current.name} (${current.startDate} — ${current.endDate})`
+              : "No sprint currently in progress"}
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div className="space-y-2">
-                <div className="text-sm font-medium">Story Points</div>
-                <div className="text-2xl font-bold">32 / 50</div>
-                <div className="text-sm text-muted-foreground">64% completed</div>
+                <div className="text-sm font-medium">Estimated Hours</div>
+                <div className="text-2xl font-bold">{current ? current.totalEstimatedHours : 0}h</div>
+                <div className="text-sm text-muted-foreground">
+                  {current ? `${current.taskCount} tasks` : "Create a sprint to begin"}
+                </div>
               </div>
               <div className="space-y-2">
-                <div className="text-sm font-medium">Team Capacity</div>
-                <div className="text-2xl font-bold">80%</div>
-                <div className="text-sm text-muted-foreground">5% higher than last sprint</div>
+                <div className="text-sm font-medium">Sprints Planned</div>
+                <div className="text-2xl font-bold">{sprints.length}</div>
+                <div className="text-sm text-muted-foreground">
+                  {sprints.filter((s) => sprintStatus(s) === "Planned").length} upcoming
+                </div>
               </div>
               <div className="space-y-2">
                 <div className="text-sm font-medium">Days Remaining</div>
-                <div className="text-2xl font-bold">8</div>
-                <div className="text-sm text-muted-foreground">Sprint ends on April 28</div>
+                <div className="text-2xl font-bold">{currentDaysLeft ?? "—"}</div>
+                <div className="text-sm text-muted-foreground">
+                  {current && current.endDate ? `Sprint ends on ${current.endDate}` : "No active sprint"}
+                </div>
               </div>
             </div>
-            <SprintProgress />
           </div>
         </CardContent>
       </Card>
@@ -206,56 +217,60 @@ export default function SprintsPage() {
               <TableHead>Sprint</TableHead>
               <TableHead>Date Range</TableHead>
               <TableHead>Status</TableHead>
-              <TableHead>Progress</TableHead>
-              <TableHead>Capacity</TableHead>
-              <TableHead>Story Points</TableHead>
+              <TableHead>Tasks</TableHead>
+              <TableHead>Estimated Hours</TableHead>
+              <TableHead className="text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {sprints.map((sprint) => (
-              <TableRow key={sprint.id}>
-                <TableCell className="font-medium">
-                  <div className="flex items-center gap-2">
-                    <Calendar className="h-4 w-4" />
-                    {sprint.name}
-                  </div>
-                </TableCell>
-                <TableCell>
-                  {sprint.startDate} to {sprint.endDate}
-                </TableCell>
-                <TableCell>
-                  <Badge
-                    variant={
-                      sprint.status === "Completed"
-                        ? "default"
-                        : sprint.status === "In Progress"
-                          ? "secondary"
-                          : "outline"
-                    }
-                  >
-                    {sprint.status}
-                  </Badge>
-                </TableCell>
-                <TableCell>
-                  <div className="flex items-center gap-2">
-                    <div
-                      className="h-2 w-16 rounded-full bg-gray-200 dark:bg-gray-700"
-                      role="progressbar"
-                      aria-valuenow={sprint.progress}
-                      aria-valuemin={0}
-                      aria-valuemax={100}
-                    >
-                      <div className="h-full rounded-full bg-primary" style={{ width: `${sprint.progress}%` }} />
-                    </div>
-                    <span className="text-sm">{sprint.progress}%</span>
-                  </div>
-                </TableCell>
-                <TableCell>{sprint.capacity}%</TableCell>
-                <TableCell>
-                  {sprint.completed} / {sprint.storyPoints}
+            {loading ? (
+              <TableRow>
+                <TableCell colSpan={6} className="text-center text-muted-foreground">
+                  Loading sprints…
                 </TableCell>
               </TableRow>
-            ))}
+            ) : sprints.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={6} className="text-center text-muted-foreground">
+                  No sprints yet. Create one to get started.
+                </TableCell>
+              </TableRow>
+            ) : (
+              sprints.map((sprint) => (
+                <TableRow key={sprint.id}>
+                  <TableCell className="font-medium">
+                    <div className="flex items-center gap-2">
+                      <Calendar className="h-4 w-4" />
+                      {sprint.name}
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    {sprint.startDate ?? "—"} to {sprint.endDate ?? "—"}
+                  </TableCell>
+                  <TableCell>
+                    <Badge
+                      variant={
+                        sprintStatus(sprint) === "Completed"
+                          ? "default"
+                          : sprintStatus(sprint) === "In Progress"
+                            ? "secondary"
+                            : "outline"
+                      }
+                    >
+                      {sprintStatus(sprint)}
+                    </Badge>
+                  </TableCell>
+                  <TableCell>{sprint.taskCount}</TableCell>
+                  <TableCell>{sprint.totalEstimatedHours}h</TableCell>
+                  <TableCell className="text-right">
+                    <Button variant="ghost" size="icon" onClick={() => handleDelete(sprint.id)}>
+                      <Trash2 className="h-4 w-4 text-red-500" />
+                      <span className="sr-only">Delete sprint</span>
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))
+            )}
           </TableBody>
         </Table>
       </div>
