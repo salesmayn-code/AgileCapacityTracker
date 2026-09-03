@@ -29,7 +29,7 @@ export default function GitHubPage() {
 
   const loadTasks = useCallback(async () => {
     try {
-      setTasks(await api.listTasks())
+      setTasks(await api.allTasks())
     } catch {
       // Task list is non-critical; leave previous data
     }

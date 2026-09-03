@@ -29,7 +29,7 @@ export default function DashboardPage() {
 
   useEffect(() => {
     let cancelled = false
-    Promise.all([api.getWorkload(), api.listSprints(), api.listUsers(), api.listTasks()])
+    Promise.all([api.getWorkload(), api.allSprints(), api.allUsers(), api.allTasks()])
       .then(([workload, sprints, users, tasks]: [WorkloadDto[], SprintDto[], UserDto[], import("@/lib/api").TaskDto[]]) => {
         if (cancelled) return
         const workingHours = getWorkingHoursPerDay()

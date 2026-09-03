@@ -53,7 +53,7 @@ export default function SprintsPage() {
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      setSprints(await api.listSprints())
+      setSprints(await api.allSprints())
     } catch (error) {
       toast({
         title: "Failed to load sprints",

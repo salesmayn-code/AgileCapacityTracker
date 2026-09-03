@@ -62,7 +62,7 @@ export default function TeamPage() {
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      setMembers(await api.listUsers())
+      setMembers(await api.allUsers())
     } catch (error) {
       toast({
         title: "Failed to load team",
