@@ -69,7 +69,7 @@ All error responses share a consistent JSON body (`timestamp`, `status`, `error`
 ### Prerequisites
 
 - Java 17+ and Maven (backend)
-- Node.js 20+ and pnpm (frontend)
+- Node.js 22+ and pnpm 11 (frontend)
 - PostgreSQL 15+ running locally
 
 ### Environment variables
