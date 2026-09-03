@@ -58,7 +58,28 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     let message = `${response.status} ${response.statusText}`
     try {
       const body = await response.text()
-      if (body) message = body
+      if (body) {
+        // Backend returns JSON errors: { timestamp, status, error, message, fieldErrors? }
+        try {
+          const parsed = JSON.parse(body)
+          if (parsed && typeof parsed === "object") {
+            const fieldErrors = parsed.fieldErrors
+            const fieldSummary =
+              fieldErrors && typeof fieldErrors === "object"
+                ? " (" +
+                  Object.entries(fieldErrors)
+                    .map(([field, msg]) => `${field}: ${msg}`)
+                    .join("; ") +
+                  ")"
+                : ""
+            message = `${parsed.message ?? parsed.error ?? message}${fieldSummary}`
+          } else {
+            message = body
+          }
+        } catch {
+          message = body
+        }
+      }
     } catch {
       // keep status text
     }
@@ -82,6 +103,8 @@ export const api = {
   listSprints: () => request<SprintDto[]>("/api/sprints"),
   createSprint: (body: { name: string; startDate?: string; endDate?: string }) =>
     request<SprintDto>("/api/sprints", { method: "POST", body: JSON.stringify(body) }),
+  updateSprint: (id: number, body: { name: string; startDate?: string; endDate?: string }) =>
+    request<SprintDto>(`/api/sprints/${id}`, { method: "PUT", body: JSON.stringify(body) }),
   deleteSprint: (id: number) => request<void>(`/api/sprints/${id}`, { method: "DELETE" }),
 
   // Tasks
@@ -96,11 +119,13 @@ export const api = {
   getWorkload: () => request<WorkloadDto[]>("/api/capacity/workload"),
 
   // GitHub
-  syncRepo: (ownerAndRepo: string, token?: string) =>
-    request<SyncResultDto>(`/api/github/sync/${ownerAndRepo}`, {
+  syncRepo: (ownerAndRepo: string, token?: string) => {
+    const [owner, repo] = ownerAndRepo.split("/").map((part) => encodeURIComponent(part.trim()))
+    return request<SyncResultDto>(`/api/github/sync/${owner}/${repo}`, {
       method: "POST",
       headers: token ? { Authorization: `Bearer ${token}` } : {},
-    }),
+    })
+  },
 }
 
 // ---- settings (localStorage-backed; the Settings page drives these) ----
