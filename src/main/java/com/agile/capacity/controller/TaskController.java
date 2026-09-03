@@ -1,13 +1,12 @@
 package com.agile.capacity.controller;
 
+import com.agile.capacity.dto.Dtos.PageDto;
 import com.agile.capacity.dto.Dtos.TaskDto;
 import com.agile.capacity.dto.Dtos.TaskRequest;
 import com.agile.capacity.service.TrackerService;
-import org.springframework.http.HttpStatus;
 import jakarta.validation.Valid;
+import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
-
-import java.util.List;
 
 @RestController
 @RequestMapping("/api/tasks")
@@ -19,8 +18,10 @@ public class TaskController {
     }
 
     @GetMapping
-    public List<TaskDto> list() {
-        return trackerService.listTasks();
+    public PageDto<TaskDto> list(
+            @RequestParam(required = false) Integer page,
+            @RequestParam(required = false) Integer size) {
+        return trackerService.listTasks(page, size);
     }
 
     @PostMapping

@@ -1,13 +1,12 @@
 package com.agile.capacity.controller;
 
+import com.agile.capacity.dto.Dtos.PageDto;
 import com.agile.capacity.dto.Dtos.UserDto;
 import com.agile.capacity.dto.Dtos.UserRequest;
 import com.agile.capacity.service.TrackerService;
-import org.springframework.http.HttpStatus;
 import jakarta.validation.Valid;
+import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
-
-import java.util.List;
 
 @RestController
 @RequestMapping("/api/users")
@@ -19,8 +18,10 @@ public class UserController {
     }
 
     @GetMapping
-    public List<UserDto> list() {
-        return trackerService.listUsers();
+    public PageDto<UserDto> list(
+            @RequestParam(required = false) Integer page,
+            @RequestParam(required = false) Integer size) {
+        return trackerService.listUsers(page, size);
     }
 
     @GetMapping("/{id}")

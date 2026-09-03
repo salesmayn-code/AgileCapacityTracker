@@ -1,13 +1,12 @@
 package com.agile.capacity.controller;
 
+import com.agile.capacity.dto.Dtos.PageDto;
 import com.agile.capacity.dto.Dtos.SprintDto;
 import com.agile.capacity.dto.Dtos.SprintRequest;
 import com.agile.capacity.service.TrackerService;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
-
-import java.util.List;
 
 @RestController
 @RequestMapping("/api/sprints")
@@ -19,8 +18,10 @@ public class SprintController {
     }
 
     @GetMapping
-    public List<SprintDto> list() {
-        return trackerService.listSprints();
+    public PageDto<SprintDto> list(
+            @RequestParam(required = false) Integer page,
+            @RequestParam(required = false) Integer size) {
+        return trackerService.listSprints(page, size);
     }
 
     @PostMapping
