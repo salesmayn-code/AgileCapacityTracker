@@ -46,4 +46,7 @@ public final class Dtos {
                               int dailyCapacityHours, int allocatedHours, int usedHours) {}
 
     public record SyncResultDto(int imported, int skipped, List<TaskDto> tasks) {}
+
+    /** Generic paginated response wrapper; stable contract independent of Spring's Page serialization. */
+    public record PageDto<T>(List<T> content, int page, int size, long totalElements, int totalPages, boolean last) {}
 }
