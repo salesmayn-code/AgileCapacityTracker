@@ -3,6 +3,7 @@ package com.agile.capacity.controller;
 import com.agile.capacity.dto.Dtos.SprintDto;
 import com.agile.capacity.dto.Dtos.SprintRequest;
 import com.agile.capacity.service.TrackerService;
+import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
 
@@ -24,8 +25,13 @@ public class SprintController {
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    public SprintDto create(@RequestBody SprintRequest request) {
+    public SprintDto create(@Valid @RequestBody SprintRequest request) {
         return trackerService.createSprint(request);
+    }
+
+    @PutMapping("/{id}")
+    public SprintDto update(@PathVariable Long id, @Valid @RequestBody SprintRequest request) {
+        return trackerService.updateSprint(id, request);
     }
 
     @DeleteMapping("/{id}")
