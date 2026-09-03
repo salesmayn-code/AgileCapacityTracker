@@ -17,7 +17,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { Badge } from "@/components/ui/badge"
-import { Calendar, Plus, Trash2 } from "lucide-react"
+import { Calendar, Pencil, Plus, Trash2 } from "lucide-react"
 import { format } from "date-fns"
 import { useToast } from "@/components/ui/use-toast"
 
@@ -42,11 +42,13 @@ export default function SprintsPage() {
   const [sprints, setSprints] = useState<SprintDto[]>([])
   const [loading, setLoading] = useState(true)
   const [isAddSprintOpen, setIsAddSprintOpen] = useState(false)
+  const [editing, setEditing] = useState<SprintDto | null>(null)
   const [newSprint, setNewSprint] = useState({
     name: "",
     startDate: new Date(),
     endDate: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000),
   })
+  const [editSprint, setEditSprint] = useState({ name: "", startDate: "", endDate: "" })
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -95,6 +97,35 @@ export default function SprintsPage() {
     } catch (error) {
       toast({
         title: "Failed to delete sprint",
+        description: error instanceof Error ? error.message : "Unknown error",
+        variant: "destructive",
+      })
+    }
+  }
+
+  const openEdit = (sprint: SprintDto) => {
+    setEditing(sprint)
+    setEditSprint({
+      name: sprint.name,
+      startDate: sprint.startDate ?? "",
+      endDate: sprint.endDate ?? "",
+    })
+  }
+
+  const handleEdit = async () => {
+    if (!editing) return
+    try {
+      await api.updateSprint(editing.id, {
+        name: editSprint.name,
+        startDate: editSprint.startDate || undefined,
+        endDate: editSprint.endDate || undefined,
+      })
+      toast({ title: "Sprint updated", description: `${editSprint.name} has been saved.` })
+      setEditing(null)
+      await load()
+    } catch (error) {
+      toast({
+        title: "Failed to update sprint",
         description: error instanceof Error ? error.message : "Unknown error",
         variant: "destructive",
       })
@@ -171,6 +202,60 @@ export default function SprintsPage() {
           </DialogContent>
         </Dialog>
       </div>
+
+      <Dialog open={editing !== null} onOpenChange={(open) => !open && setEditing(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit Sprint</DialogTitle>
+            <DialogDescription>Update the sprint name or dates.</DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="edit-name" className="text-right">
+                Sprint Name
+              </Label>
+              <Input
+                id="edit-name"
+                value={editSprint.name}
+                onChange={(e) => setEditSprint({ ...editSprint, name: e.target.value })}
+                className="col-span-3"
+              />
+            </div>
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="edit-startDate" className="text-right">
+                Start Date
+              </Label>
+              <Input
+                id="edit-startDate"
+                type="date"
+                value={editSprint.startDate}
+                onChange={(e) => setEditSprint({ ...editSprint, startDate: e.target.value })}
+                className="col-span-3"
+              />
+            </div>
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="edit-endDate" className="text-right">
+                End Date
+              </Label>
+              <Input
+                id="edit-endDate"
+                type="date"
+                value={editSprint.endDate}
+                onChange={(e) => setEditSprint({ ...editSprint, endDate: e.target.value })}
+                className="col-span-3"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditing(null)}>
+              Cancel
+            </Button>
+            <Button onClick={handleEdit} disabled={!editing || !editSprint.name.trim()}>
+              Save Changes
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Card>
         <CardHeader>
@@ -263,6 +348,10 @@ export default function SprintsPage() {
                   <TableCell>{sprint.taskCount}</TableCell>
                   <TableCell>{sprint.totalEstimatedHours}h</TableCell>
                   <TableCell className="text-right">
+                    <Button variant="ghost" size="icon" onClick={() => openEdit(sprint)}>
+                      <Pencil className="h-4 w-4" />
+                      <span className="sr-only">Edit sprint</span>
+                    </Button>
                     <Button variant="ghost" size="icon" onClick={() => handleDelete(sprint.id)}>
                       <Trash2 className="h-4 w-4 text-red-500" />
                       <span className="sr-only">Delete sprint</span>
