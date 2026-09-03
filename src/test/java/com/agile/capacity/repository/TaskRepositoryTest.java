@@ -56,12 +56,14 @@ class TaskRepositoryTest {
         alice = new User();
         alice.setUsername("alice");
         alice.setRole("developer");
+        alice.setPasswordHash("encoded");
         alice.setDailyCapacityHours(8);
         alice = userRepository.save(alice);
 
         bob = new User();
         bob.setUsername("bob");
         bob.setRole("developer");
+        bob.setPasswordHash("encoded");
         bob.setDailyCapacityHours(6);
         bob = userRepository.save(bob);
 

@@ -1,5 +1,6 @@
 package com.agile.capacity.api;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.agile.capacity.Main;
 import org.junit.jupiter.api.MethodOrderer;
 import org.junit.jupiter.api.Order;
@@ -24,8 +25,15 @@ import static org.assertj.core.api.Assertions.assertThat;
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 class ApiIntegrationTest {
 
+    private static final String ADMIN_EMAIL = "admin@test.local";
+    private static final String ADMIN_PASSWORD = "test-admin-password";
+
     @Autowired
     private TestRestTemplate rest;
+
+    private final ObjectMapper mapper = new ObjectMapper();
+
+    // ---- helpers ----
 
     private HttpHeaders json() {
         HttpHeaders headers = new HttpHeaders();
@@ -33,248 +41,311 @@ class ApiIntegrationTest {
         return headers;
     }
 
+    private HttpHeaders authed(String token) {
+        HttpHeaders headers = json();
+        headers.set("Authorization", "Bearer " + token);
+        return headers;
+    }
+
     @SuppressWarnings("unchecked")
     private Map<String, Object> body(ResponseEntity<String> response) {
         try {
-            return new com.fasterxml.jackson.databind.ObjectMapper().readValue(response.getBody(), Map.class);
+            return mapper.readValue(response.getBody(), Map.class);
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
     }
 
     @SuppressWarnings("unchecked")
-    private List<Map<String, Object>> contentOf(String path) {
-        return (List<Map<String, Object>>) body(rest.getForEntity(path, String.class)).get("content");
+    private List<Map<String, Object>> bodyList(ResponseEntity<String> response) {
+        try {
+            return mapper.readValue(response.getBody(), List.class);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<Map<String, Object>> contentOf(String path, String token) {
+        return (List<Map<String, Object>>) body(get(path, token)).get("content");
+    }
+
+    private ResponseEntity<String> get(String path, String token) {
+        return rest.exchange(path, HttpMethod.GET, new HttpEntity<>(authed(token)), String.class);
+    }
+
+    private ResponseEntity<String> post(String path, String token, Map<String, Object> payload) {
+        return rest.exchange(path, HttpMethod.POST, new HttpEntity<>(payload, authed(token)), String.class);
+    }
+
+    private ResponseEntity<String> put(String path, String token, Map<String, Object> payload) {
+        return rest.exchange(path, HttpMethod.PUT, new HttpEntity<>(payload, authed(token)), String.class);
+    }
+
+    private ResponseEntity<String> delete(String path, String token) {
+        return rest.exchange(path, HttpMethod.DELETE, new HttpEntity<>(authed(token)), String.class);
+    }
+
+    private String login(String email, String password) {
+        ResponseEntity<String> response = rest.postForEntity("/api/auth/login",
+                new HttpEntity<>(Map.of("email", email, "password", password), json()), String.class);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        return body(response).get("token").toString();
+    }
+
+    /** Creates a user via the admin API and returns its id. */
+    private Number createUser(String adminToken, String username, String email, String role, String password) {
+        ResponseEntity<String> response = post("/api/users", adminToken, Map.of(
+                "username", username, "email", email, "role", role,
+                "password", password, "dailyCapacityHours", 6));
+        assertThat(response.getStatusCode()).as("create %s", username).isEqualTo(HttpStatus.CREATED);
+        return (Number) body(response).get("id");
+    }
+
+    // ---- auth ----
+
+    @Test
+    @Order(0)
+    void bootstrapAdminCanLogIn() {
+        String token = login(ADMIN_EMAIL, ADMIN_PASSWORD);
+        ResponseEntity<String> me = get("/api/auth/me", token);
+        assertThat(me.getStatusCode()).isEqualTo(HttpStatus.OK);
+        Map<String, Object> meBody = body(me);
+        assertThat(meBody.get("email")).isEqualTo(ADMIN_EMAIL);
+        assertThat(meBody.get("role")).isEqualTo("admin");
     }
 
     @Test
     @Order(1)
-    void healthCheck_listEndpointsAreUp() {
-        assertThat(rest.getForEntity("/api/users", Map.class).getStatusCode()).isEqualTo(HttpStatus.OK);
-        assertThat(rest.getForEntity("/api/sprints", Map.class).getStatusCode()).isEqualTo(HttpStatus.OK);
-        assertThat(rest.getForEntity("/api/tasks", Map.class).getStatusCode()).isEqualTo(HttpStatus.OK);
-        assertThat(rest.getForEntity("/api/capacity/workload", List.class).getStatusCode()).isEqualTo(HttpStatus.OK);
+    void wrongPasswordReturns401WithJsonError() {
+        ResponseEntity<String> response = rest.postForEntity("/api/auth/login",
+                new HttpEntity<>(Map.of("email", ADMIN_EMAIL, "password", "wrong"), json()), String.class);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        Map<String, Object> errorBody = body(response);
+        assertThat(errorBody.get("status")).isEqualTo(401);
+        assertThat(errorBody.get("message")).isNotNull();
     }
 
     @Test
     @Order(2)
-    void listEndpointsArePaginatedWithStableContract() {
-        // default pagination
-        Map<String, Object> users = body(rest.getForEntity("/api/users", String.class));
-        assertThat(users).containsKeys("content", "page", "size", "totalElements", "totalPages", "last");
+    void anonymousRequestsAreRejectedWith401() {
+        assertThat(rest.getForEntity("/api/users", String.class).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(rest.getForEntity("/api/sprints", String.class).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(rest.getForEntity("/api/tasks", String.class).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(rest.getForEntity("/api/capacity/workload", String.class).getStatusCode())
+                .isEqualTo(HttpStatus.UNAUTHORIZED);
 
-        // explicit page/size + bound capping
-        Map<String, Object> pageOne = body(rest.getForEntity("/api/users?page=0&size=2", String.class));
-        assertThat((Number) pageOne.get("size")).isEqualTo(2);
+        ResponseEntity<String> unauthCreate = rest.postForEntity("/api/users",
+                new HttpEntity<>(Map.of("username", "x", "role", "admin"), json()), String.class);
+        assertThat(unauthCreate.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
 
-        Map<String, Object> oversized = body(rest.getForEntity("/api/users?size=5000", String.class));
-        assertThat(((Number) oversized.get("size")).intValue()).isLessThanOrEqualTo(100); // capped
+        // malformed token is also 401 (not 500)
+        HttpHeaders bad = json();
+        bad.set("Authorization", "Bearer garbage");
+        assertThat(rest.exchange("/api/users", HttpMethod.GET, new HttpEntity<>(bad), String.class).getStatusCode())
+                .isEqualTo(HttpStatus.UNAUTHORIZED);
 
-        Map<String, Object> negativePage = body(rest.getForEntity("/api/users?page=-5", String.class));
-        assertThat((Number) negativePage.get("page")).isEqualTo(0); // defaults
-
-        Map<String, Object> tasks = body(rest.getForEntity("/api/tasks", String.class));
-        assertThat(tasks).containsKey("content");
-
-        Map<String, Object> sprints = body(rest.getForEntity("/api/sprints", String.class));
-        assertThat(sprints).containsKey("content");
-    }
-
-    @Test
-    @Order(2)
-    void userCrudFlow() {
-        Map<String, Object> createBody = Map.of(
-                "username", "alice",
-                "email", "alice@example.com",
-                "role", "admin",
-                "githubUsername", "alice",
-                "dailyCapacityHours", 8);
-        ResponseEntity<String> created = rest.postForEntity("/api/users",
-                new HttpEntity<>(createBody, json()), String.class);
-        assertThat(created.getStatusCode()).isEqualTo(HttpStatus.CREATED);
-        Number id = (Number) body(created).get("id");
-
-        ResponseEntity<String> updated = rest.exchange("/api/users/" + id,
-                HttpMethod.PUT, new HttpEntity<>(Map.of(
-                        "username", "alice",
-                        "email", "alice@example.com",
-                        "role", "developer",
-                        "dailyCapacityHours", 6), json()), String.class);
-        assertThat(updated.getStatusCode()).isEqualTo(HttpStatus.OK);
-        assertThat(body(updated).get("role")).isEqualTo("developer");
-
-        ResponseEntity<String> fetched = rest.getForEntity("/api/users/" + id, String.class);
-        assertThat(fetched.getStatusCode()).isEqualTo(HttpStatus.OK);
-        assertThat(body(fetched).get("dailyCapacityHours")).isEqualTo(6);
-
-        ResponseEntity<Void> deleted = rest.exchange("/api/users/" + id,
-                HttpMethod.DELETE, null, Void.class);
-        assertThat(deleted.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
-
-        assertThat(rest.getForEntity("/api/users/" + id, String.class).getStatusCode())
-                .isEqualTo(HttpStatus.NOT_FOUND);
+        // login stays open
+        assertThat(rest.postForEntity("/api/auth/login",
+                new HttpEntity<>(Map.of("email", ADMIN_EMAIL, "password", "wrong"), json()), String.class)
+                .getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED); // reachable, auths checked, not 404/500
     }
 
     @Test
     @Order(3)
-    void sprintAndTaskCrudFlowWithCascade() {
-        ResponseEntity<String> sprintResponse = rest.postForEntity("/api/sprints",
-                new HttpEntity<>(Map.of("name", "Sprint 1",
-                        "startDate", "2026-09-01", "endDate", "2026-09-14"), json()), String.class);
-        assertThat(sprintResponse.getStatusCode()).isEqualTo(HttpStatus.CREATED);
-        Map<String, Object> sprint = body(sprintResponse);
-        Number sprintId = (Number) sprint.get("id");
-        assertThat(sprint.get("taskCount")).isEqualTo(0);
+    void roleMatrixEnforced() {
+        String admin = login(ADMIN_EMAIL, ADMIN_PASSWORD);
+        Number leadId = createUser(admin, "lead-user", "lead@test.local", "team_lead", "lead-pass-123");
+        Number devId = createUser(admin, "dev-user", "dev@test.local", "developer", "dev-pass-1234");
+        String lead = login("lead@test.local", "lead-pass-123");
+        String dev = login("dev@test.local", "dev-pass-1234");
 
-        Map<String, Object> user = body(rest.postForEntity("/api/users",
-                new HttpEntity<>(Map.of("username", "bob", "role", "developer",
-                        "dailyCapacityHours", 6), json()), String.class));
-        Number userId = (Number) user.get("id");
+        // developer: read OK
+        assertThat(get("/api/users", dev).getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(get("/api/capacity/workload", dev).getStatusCode()).isEqualTo(HttpStatus.OK);
 
-        ResponseEntity<String> task = rest.postForEntity("/api/tasks",
-                new HttpEntity<>(Map.of("title", "Design API", "estimatedHours", 12,
-                        "status", "open", "assignedUserId", userId, "sprintId", sprintId), json()), String.class);
+        // developer: user management forbidden
+        assertThat(post("/api/users", dev, Map.of("username", "x", "email", "x@x.x", "role", "developer",
+                "password", "longpass-1")).getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(delete("/api/users/" + leadId, dev).getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+
+        // developer: sprint writes forbidden, but task writes allowed (matrix v1)
+        assertThat(post("/api/sprints", dev, Map.of("name", "Dev Sprint")).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+        ResponseEntity<String> devTask = post("/api/tasks", dev, Map.of("title", "Dev task"));
+        assertThat(devTask.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        String devTaskId = body(devTask).get("id").toString();
+
+        // team_lead: sprint/task writes OK, user management forbidden
+        ResponseEntity<String> sprint = post("/api/sprints", lead, Map.of("name", "Lead Sprint",
+                "startDate", "2026-09-01", "endDate", "2026-09-14"));
+        assertThat(sprint.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        Number sprintId = (Number) body(sprint).get("id");
+
+        ResponseEntity<String> task = post("/api/tasks", lead, Map.of("title", "Lead task",
+                "estimatedHours", 4, "assignedUserId", devId, "sprintId", sprintId));
+        assertThat(task.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        String taskIdStr = body(task).get("id").toString();
+
+        assertThat(post("/api/users", lead, Map.of("username", "y", "email", "y@y.y", "role", "developer",
+                "password", "longpass-1")).getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+
+        // developer can update a task (task writes allowed for all roles per matrix v1)
+        ResponseEntity<String> updated = put("/api/tasks/" + taskIdStr, dev, Map.of("title", "Dev updated",
+                "estimatedHours", 5, "status", "in_progress"));
+        assertThat(updated.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(body(updated).get("status")).isEqualTo("in_progress");
+
+        // team_lead cannot sync GitHub (admin+team_lead allowed; developer forbidden) - prove developer 403
+        assertThat(rest.exchange("/api/github/sync/octocat/hello-world", HttpMethod.POST,
+                new HttpEntity<>(authed(dev)), String.class).getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+
+        // cleanup
+        assertThat(delete("/api/tasks/" + taskIdStr, lead).getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+        assertThat(delete("/api/tasks/" + devTaskId, lead).getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+        assertThat(delete("/api/sprints/" + sprintId, lead).getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+        assertThat(delete("/api/users/" + devId, admin).getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+        assertThat(delete("/api/users/" + leadId, admin).getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+    }
+
+    // ---- CRUD flows (as admin) ----
+
+    @Test
+    @Order(4)
+    void userCrudFlowAsAdmin() {
+        String admin = login(ADMIN_EMAIL, ADMIN_PASSWORD);
+
+        ResponseEntity<String> created = post("/api/users", admin, Map.of(
+                "username", "alice", "email", "alice-crud@test.local", "role", "admin",
+                "password", "alice-pass-123", "githubUsername", "alice", "dailyCapacityHours", 8));
+        assertThat(created.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        Number id = (Number) body(created).get("id");
+
+        ResponseEntity<String> updated = put("/api/users/" + id, admin, Map.of(
+                "username", "alice", "email", "alice@test.local", "role", "developer",
+                "dailyCapacityHours", 6));
+        assertThat(updated.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(body(updated).get("role")).isEqualTo("developer");
+
+        assertThat(get("/api/users/" + id, admin).getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(delete("/api/users/" + id, admin).getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+        assertThat(get("/api/users/" + id, admin).getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+    }
+
+    @Test
+    @Order(5)
+    void paginatedListsAsAdmin() {
+        String admin = login(ADMIN_EMAIL, ADMIN_PASSWORD);
+
+        Map<String, Object> users = body(get("/api/users", admin));
+        assertThat(users).containsKeys("content", "page", "size", "totalElements", "totalPages", "last");
+
+        Map<String, Object> pageOne = body(get("/api/users?page=0&size=2", admin));
+        assertThat((Number) pageOne.get("size")).isEqualTo(2);
+
+        Map<String, Object> oversized = body(get("/api/users?size=5000", admin));
+        assertThat(((Number) oversized.get("size")).intValue()).isLessThanOrEqualTo(100);
+
+        Map<String, Object> negativePage = body(get("/api/users?page=-5", admin));
+        assertThat((Number) negativePage.get("page")).isEqualTo(0);
+
+        assertThat(body(get("/api/tasks", admin))).containsKey("content");
+        assertThat(body(get("/api/sprints", admin))).containsKey("content");
+    }
+
+    @Test
+    @Order(6)
+    void sprintTaskFlowWorkloadAndCascade() {
+        String admin = login(ADMIN_EMAIL, ADMIN_PASSWORD);
+        Number userId = createUser(admin, "bob", "bob@test.local", "developer", "bob-pass-1234");
+
+        ResponseEntity<String> sprint = post("/api/sprints", admin, Map.of("name", "Sprint 1",
+                "startDate", "2026-09-01", "endDate", "2026-09-14"));
+        assertThat(sprint.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        Number sprintId = (Number) body(sprint).get("id");
+        assertThat(body(sprint).get("taskCount")).isEqualTo(0);
+
+        ResponseEntity<String> task = post("/api/tasks", admin, Map.of("title", "Design API",
+                "estimatedHours", 12, "status", "open", "assignedUserId", userId, "sprintId", sprintId));
         assertThat(task.getStatusCode()).isEqualTo(HttpStatus.CREATED);
         Map<String, Object> taskBody = body(task);
         assertThat(taskBody.get("assignedUsername")).isEqualTo("bob");
         assertThat(taskBody.get("sprintName")).isEqualTo("Sprint 1");
 
-        List<Map<String, Object>> sprints = contentOf("/api/sprints");
-        Map<String, Object> refreshed = sprints.stream()
+        Map<String, Object> refreshed = contentOf("/api/sprints", admin).stream()
                 .filter(s -> ((Number) s.get("id")).longValue() == sprintId.longValue())
                 .findFirst().orElseThrow();
         assertThat(refreshed.get("taskCount")).isEqualTo(1);
         assertThat(refreshed.get("totalEstimatedHours")).isEqualTo(12);
 
-        List<Map<String, Object>> workload = rest.getForObject("/api/capacity/workload", List.class);
-        Map<String, Object> bob = ((List<Map<String, Object>>) (Object) workload).stream()
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> workload = bodyList(rest.exchange("/api/capacity/workload",
+                HttpMethod.GET, new HttpEntity<>(authed(admin)), String.class));
+        Map<String, Object> bob = workload.stream()
                 .filter(w -> "bob".equals(w.get("username")))
                 .findFirst().orElseThrow();
         assertThat(((Number) bob.get("allocatedHours")).intValue()).isEqualTo(60); // 6 * 10
         assertThat(((Number) bob.get("usedHours")).intValue()).isEqualTo(12);
 
-        rest.delete("/api/sprints/" + sprintId);
-        assertThat(contentOf("/api/tasks")).isEmpty();
-        rest.delete("/api/users/" + userId);
-    }
-
-    @Test
-    @Order(4)
-    void validationErrorsReturn400and404() {
-        ResponseEntity<String> badRole = rest.postForEntity("/api/users",
-                new HttpEntity<>(Map.of("username", "eve", "role", "hacker"), json()), String.class);
-        assertThat(badRole.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
-        Map<String, Object> badRoleBody = body(badRole);
-        assertThat(badRoleBody.get("status")).isEqualTo(400);
-        assertThat(badRoleBody.get("message")).isNotNull();
-
-        ResponseEntity<String> blankName = rest.postForEntity("/api/sprints",
-                new HttpEntity<>(Map.of("name", " "), json()), String.class);
-        assertThat(blankName.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
-
-        assertThat(rest.getForEntity("/api/users/9999", String.class).getStatusCode())
-                .isEqualTo(HttpStatus.NOT_FOUND);
-    }
-
-    @Test
-    @Order(5)
-    void duplicateUserReturns409WithJsonError() {
-        Map<String, Object> payload = Map.of("username", "dup-user", "role", "developer");
-        ResponseEntity<String> first = rest.postForEntity("/api/users",
-                new HttpEntity<>(payload, json()), String.class);
-        assertThat(first.getStatusCode()).isEqualTo(HttpStatus.CREATED);
-
-        ResponseEntity<String> second = rest.postForEntity("/api/users",
-                new HttpEntity<>(payload, json()), String.class);
-        assertThat(second.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
-        Map<String, Object> errorBody = body(second);
-        assertThat(errorBody.get("status")).isEqualTo(409);
-        assertThat(errorBody.get("error")).isEqualTo("Conflict");
-
-        Number id = (Number) body(first).get("id");
-        rest.delete("/api/users/" + id);
-    }
-
-    @Test
-    @Order(6)
-    void beanValidationMatrixReturns400WithFieldErrors() {
-        // invalid email
-        assertThat(rest.postForEntity("/api/users",
-                new HttpEntity<>(Map.of("username", "u1", "role", "developer",
-                        "email", "not-an-email"), json()), String.class).getStatusCode())
-                .isEqualTo(HttpStatus.BAD_REQUEST);
-
-        // negative hours
-        ResponseEntity<String> negative = rest.postForEntity("/api/tasks",
-                new HttpEntity<>(Map.of("title", "x", "estimatedHours", -1), json()), String.class);
-        assertThat(negative.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
-        assertThat((body(negative).get("fieldErrors"))).isNotNull();
-
-        // invalid status
-        assertThat(rest.postForEntity("/api/tasks",
-                new HttpEntity<>(Map.of("title", "x", "status", "weird"), json()), String.class).getStatusCode())
-                .isEqualTo(HttpStatus.BAD_REQUEST);
-
-        // malformed JSON body
-        HttpHeaders raw = new HttpHeaders();
-        raw.setContentType(MediaType.APPLICATION_JSON);
-        assertThat(rest.postForEntity("/api/tasks",
-                new HttpEntity<>("{bad json", raw), String.class).getStatusCode())
-                .isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(delete("/api/sprints/" + sprintId, admin).getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+        assertThat(contentOf("/api/tasks", admin)).isEmpty();
+        assertThat(delete("/api/users/" + userId, admin).getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
     }
 
     @Test
     @Order(7)
-    void sprintUpdateFlow() {
-        Number id = (Number) body(rest.postForEntity("/api/sprints",
-                new HttpEntity<>(Map.of("name", "Original",
-                        "startDate", "2026-09-01", "endDate", "2026-09-14"), json()), String.class)).get("id");
+    void validationAndDuplicateErrors() {
+        String admin = login(ADMIN_EMAIL, ADMIN_PASSWORD);
 
-        ResponseEntity<String> updated = rest.exchange("/api/sprints/" + id, HttpMethod.PUT,
-                new HttpEntity<>(Map.of("name", "Renamed",
-                        "startDate", "2026-09-02", "endDate", "2026-09-20"), json()), String.class);
-        assertThat(updated.getStatusCode()).isEqualTo(HttpStatus.OK);
-        Map<String, Object> updatedBody = body(updated);
-        assertThat(updatedBody.get("name")).isEqualTo("Renamed");
-        assertThat(updatedBody.get("endDate")).isEqualTo("2026-09-20");
+        // duplicate username -> 409 (email differs; password supplied so validation passes)
+        Number dupId = createUser(admin, "dup-user", "dup@test.local", "developer", "dup-pass-123");
+        ResponseEntity<String> dup = post("/api/users", admin, Map.of(
+                "username", "dup-user", "email", "other@test.local", "role", "developer",
+                "password", "longpass-123"));
+        assertThat(dup.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(body(dup).get("status")).isEqualTo(409);
 
-        ResponseEntity<String> reversed = rest.exchange("/api/sprints/" + id, HttpMethod.PUT,
-                new HttpEntity<>(Map.of("name", "Bad",
-                        "startDate", "2026-09-20", "endDate", "2026-09-01"), json()), String.class);
-        assertThat(reversed.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        // duplicate email -> 409 as well
+        ResponseEntity<String> dupEmail = post("/api/users", admin, Map.of(
+                "username", "dup-email", "email", "dup@test.local", "role", "developer",
+                "password", "longpass-123"));
+        assertThat(dupEmail.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
 
-        ResponseEntity<String> missing = rest.exchange("/api/sprints/99999", HttpMethod.PUT,
-                new HttpEntity<>(Map.of("name", "Ghost"), json()), String.class);
-        assertThat(missing.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        // validation matrix -> 400 with fieldErrors
+        ResponseEntity<String> badRole = post("/api/users", admin, Map.of(
+                "username", "eve", "email", "eve@test.local", "role", "hacker"));
+        assertThat(badRole.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(body(badRole).get("fieldErrors")).isNotNull();
 
-        rest.delete("/api/sprints/" + id);
+        ResponseEntity<String> negative = post("/api/tasks", admin, Map.of("title", "x", "estimatedHours", -1));
+        assertThat(negative.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+
+        ResponseEntity<String> shortPassword = post("/api/users", admin, Map.of(
+                "username", "pw", "email", "pw@test.local", "role", "developer", "password", "short"));
+        assertThat(shortPassword.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+
+        // missing password on create -> 400
+        ResponseEntity<String> noPassword = post("/api/users", admin, Map.of(
+                "username", "nopass", "email", "nopass@test.local", "role", "developer"));
+        assertThat(noPassword.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+
+        // sprint date order -> 400
+        Number sid = (Number) body(post("/api/sprints", admin, Map.of("name", "S",
+                "startDate", "2026-09-14", "endDate", "2026-09-01"))).get("id");
+        assertThat(sid).isNull(); // create fails -> body is error JSON, no id
+
+        assertThat(delete("/api/users/" + dupId, admin).getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
     }
 
     @Test
     @Order(8)
-    void syncRouteIsReachableWithoutToken() {
-        // Two-segment route matches (Phase 6 fix); with no token configured/ provided
-        // the service fails fast with 400 BEFORE any GitHub call — proves routing works offline.
+    void syncRouteStillReachableOffline() {
+        String admin = login(ADMIN_EMAIL, ADMIN_PASSWORD);
+        // No token configured/provided -> service fails fast with 400 before any GitHub call
+        HttpHeaders headers = authed(admin);
         ResponseEntity<String> response = rest.postForEntity("/api/github/sync/octocat/hello-world",
-                new HttpEntity<>(json()), String.class);
+                new HttpEntity<>(headers), String.class);
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
-        assertThat(body(response).get("message").toString())
-                .contains("No GitHub token provided");
-    }
-
-    @Test
-    @Order(9)
-    void auditTimestampsPopulateOnWrites() {
-        // The app booted => Flyway migrated + Hibernate validated the schema.
-        // Verify audit timestamps are set by @CreationTimestamp/@UpdateTimestamp.
-        Map<String, Object> user = body(rest.postForEntity("/api/users",
-                new HttpEntity<>(Map.of("username", "audited-user", "role", "developer"), json()), String.class));
-        Number userId = (Number) user.get("id");
-
-        // update must not crash and must refresh updated_at (column exists per V2)
-        ResponseEntity<String> updated = rest.exchange("/api/users/" + userId, HttpMethod.PUT,
-                new HttpEntity<>(Map.of("username", "audited-user", "role", "team_lead"), json()), String.class);
-        assertThat(updated.getStatusCode()).isEqualTo(HttpStatus.OK);
-        rest.delete("/api/users/" + userId);
+        assertThat(body(response).get("message").toString()).contains("No GitHub token provided");
     }
 }

@@ -44,6 +44,9 @@ class TrackerServiceTest {
     @Mock
     private TaskIdGenerator taskIdGenerator;
 
+    @Mock
+    private org.springframework.security.crypto.password.PasswordEncoder passwordEncoder;
+
     @InjectMocks
     private TrackerService trackerService;
 
@@ -71,7 +74,7 @@ class TrackerServiceTest {
 
     @Test
     void createUserReturnsDto() {
-        UserRequest request = new UserRequest("alice", "alice@example.com", "admin", "alice", 8);
+        UserRequest request = new UserRequest("alice", "alice@example.com", "admin", "alice", "password-123", 8);
         when(userRepository.save(any(User.class))).thenReturn(user);
 
         UserDto dto = trackerService.createUser(request);
@@ -84,7 +87,7 @@ class TrackerServiceTest {
 
     @Test
     void createUserRejectsInvalidRole() {
-        UserRequest request = new UserRequest("alice", null, "hacker", null, 8);
+        UserRequest request = new UserRequest("alice", "a@x.co", "hacker", null, null, 8);
 
         assertThatThrownBy(() -> trackerService.createUser(request))
                 .isInstanceOf(ResponseStatusException.class)
@@ -94,7 +97,7 @@ class TrackerServiceTest {
 
     @Test
     void createUserRejectsBlankUsername() {
-        UserRequest request = new UserRequest(" ", null, "admin", null, 8);
+        UserRequest request = new UserRequest(" ", "a@x.co", "admin", null, null, 8);
 
         assertThatThrownBy(() -> trackerService.createUser(request))
                 .isInstanceOf(ResponseStatusException.class)
@@ -104,7 +107,7 @@ class TrackerServiceTest {
 
     @Test
     void updateUserReplacesFields() {
-        UserRequest request = new UserRequest("alice2", "new@example.com", "developer", null, 6);
+        UserRequest request = new UserRequest("alice2", "new@example.com", "developer", null, null, 6);
         when(userRepository.findById(1L)).thenReturn(Optional.of(user));
         when(userRepository.save(any(User.class))).thenReturn(user);
 
