@@ -42,13 +42,42 @@ class ApiIntegrationTest {
         }
     }
 
+    @SuppressWarnings("unchecked")
+    private List<Map<String, Object>> contentOf(String path) {
+        return (List<Map<String, Object>>) body(rest.getForEntity(path, String.class)).get("content");
+    }
+
     @Test
     @Order(1)
     void healthCheck_listEndpointsAreUp() {
-        assertThat(rest.getForEntity("/api/users", List.class).getStatusCode()).isEqualTo(HttpStatus.OK);
-        assertThat(rest.getForEntity("/api/sprints", List.class).getStatusCode()).isEqualTo(HttpStatus.OK);
-        assertThat(rest.getForEntity("/api/tasks", List.class).getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(rest.getForEntity("/api/users", Map.class).getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(rest.getForEntity("/api/sprints", Map.class).getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(rest.getForEntity("/api/tasks", Map.class).getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(rest.getForEntity("/api/capacity/workload", List.class).getStatusCode()).isEqualTo(HttpStatus.OK);
+    }
+
+    @Test
+    @Order(2)
+    void listEndpointsArePaginatedWithStableContract() {
+        // default pagination
+        Map<String, Object> users = body(rest.getForEntity("/api/users", String.class));
+        assertThat(users).containsKeys("content", "page", "size", "totalElements", "totalPages", "last");
+
+        // explicit page/size + bound capping
+        Map<String, Object> pageOne = body(rest.getForEntity("/api/users?page=0&size=2", String.class));
+        assertThat((Number) pageOne.get("size")).isEqualTo(2);
+
+        Map<String, Object> oversized = body(rest.getForEntity("/api/users?size=5000", String.class));
+        assertThat(((Number) oversized.get("size")).intValue()).isLessThanOrEqualTo(100); // capped
+
+        Map<String, Object> negativePage = body(rest.getForEntity("/api/users?page=-5", String.class));
+        assertThat((Number) negativePage.get("page")).isEqualTo(0); // defaults
+
+        Map<String, Object> tasks = body(rest.getForEntity("/api/tasks", String.class));
+        assertThat(tasks).containsKey("content");
+
+        Map<String, Object> sprints = body(rest.getForEntity("/api/sprints", String.class));
+        assertThat(sprints).containsKey("content");
     }
 
     @Test
@@ -110,7 +139,7 @@ class ApiIntegrationTest {
         assertThat(taskBody.get("assignedUsername")).isEqualTo("bob");
         assertThat(taskBody.get("sprintName")).isEqualTo("Sprint 1");
 
-        List<Map<String, Object>> sprints = rest.getForObject("/api/sprints", List.class);
+        List<Map<String, Object>> sprints = contentOf("/api/sprints");
         Map<String, Object> refreshed = sprints.stream()
                 .filter(s -> ((Number) s.get("id")).longValue() == sprintId.longValue())
                 .findFirst().orElseThrow();
@@ -125,8 +154,7 @@ class ApiIntegrationTest {
         assertThat(((Number) bob.get("usedHours")).intValue()).isEqualTo(12);
 
         rest.delete("/api/sprints/" + sprintId);
-        List<Map<String, Object>> tasksAfterCascade = rest.getForObject("/api/tasks", List.class);
-        assertThat(tasksAfterCascade).isEmpty();
+        assertThat(contentOf("/api/tasks")).isEmpty();
         rest.delete("/api/users/" + userId);
     }
 
@@ -232,5 +260,21 @@ class ApiIntegrationTest {
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
         assertThat(body(response).get("message").toString())
                 .contains("No GitHub token provided");
+    }
+
+    @Test
+    @Order(9)
+    void auditTimestampsPopulateOnWrites() {
+        // The app booted => Flyway migrated + Hibernate validated the schema.
+        // Verify audit timestamps are set by @CreationTimestamp/@UpdateTimestamp.
+        Map<String, Object> user = body(rest.postForEntity("/api/users",
+                new HttpEntity<>(Map.of("username", "audited-user", "role", "developer"), json()), String.class));
+        Number userId = (Number) user.get("id");
+
+        // update must not crash and must refresh updated_at (column exists per V2)
+        ResponseEntity<String> updated = rest.exchange("/api/users/" + userId, HttpMethod.PUT,
+                new HttpEntity<>(Map.of("username", "audited-user", "role", "team_lead"), json()), String.class);
+        assertThat(updated.getStatusCode()).isEqualTo(HttpStatus.OK);
+        rest.delete("/api/users/" + userId);
     }
 }
