@@ -46,6 +46,24 @@ export interface SyncResultDto {
   tasks: TaskDto[]
 }
 
+export interface PageDto<T> {
+  content: T[]
+  page: number
+  size: number
+  totalElements: number
+  totalPages: number
+  last: boolean
+}
+
+function toQuery(opts?: { page?: number; size?: number }): string {
+  if (!opts) return ""
+  const params = new URLSearchParams()
+  if (opts.page !== undefined) params.set("page", String(opts.page))
+  if (opts.size !== undefined) params.set("size", String(opts.size))
+  const query = params.toString()
+  return query ? `?${query}` : ""
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...init,
@@ -91,7 +109,22 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const api = {
   // Users
-  listUsers: () => request<UserDto[]>("/api/users"),
+  listUsers: (opts?: { page?: number; size?: number }) => {
+    const query = toQuery(opts)
+    return request<PageDto<UserDto>>(`/api/users${query}`)
+  },
+  /** Convenience: every user, walking all pages (small datasets). */
+  allUsers: async (): Promise<UserDto[]> => {
+    const all: UserDto[] = []
+    let page = 0
+    for (;;) {
+      const result = await api.listUsers({ page })
+      all.push(...result.content)
+      if (result.last || result.page >= result.totalPages - 1) break
+      page++
+    }
+    return all
+  },
   getUser: (id: number) => request<UserDto>(`/api/users/${id}`),
   createUser: (body: { username: string; email?: string; role: Role; githubUsername?: string; dailyCapacityHours?: number }) =>
     request<UserDto>("/api/users", { method: "POST", body: JSON.stringify(body) }),
@@ -100,7 +133,22 @@ export const api = {
   deleteUser: (id: number) => request<void>(`/api/users/${id}`, { method: "DELETE" }),
 
   // Sprints
-  listSprints: () => request<SprintDto[]>("/api/sprints"),
+  listSprints: (opts?: { page?: number; size?: number }) => {
+    const query = toQuery(opts)
+    return request<PageDto<SprintDto>>(`/api/sprints${query}`)
+  },
+  /** Convenience: every sprint, walking all pages (small datasets). */
+  allSprints: async (): Promise<SprintDto[]> => {
+    const all: SprintDto[] = []
+    let page = 0
+    for (;;) {
+      const result = await api.listSprints({ page })
+      all.push(...result.content)
+      if (result.last || result.page >= result.totalPages - 1) break
+      page++
+    }
+    return all
+  },
   createSprint: (body: { name: string; startDate?: string; endDate?: string }) =>
     request<SprintDto>("/api/sprints", { method: "POST", body: JSON.stringify(body) }),
   updateSprint: (id: number, body: { name: string; startDate?: string; endDate?: string }) =>
@@ -108,7 +156,22 @@ export const api = {
   deleteSprint: (id: number) => request<void>(`/api/sprints/${id}`, { method: "DELETE" }),
 
   // Tasks
-  listTasks: () => request<TaskDto[]>("/api/tasks"),
+  listTasks: (opts?: { page?: number; size?: number }) => {
+    const query = toQuery(opts)
+    return request<PageDto<TaskDto>>(`/api/tasks${query}`)
+  },
+  /** Convenience: every task, walking all pages (small datasets). */
+  allTasks: async (): Promise<TaskDto[]> => {
+    const all: TaskDto[] = []
+    let page = 0
+    for (;;) {
+      const result = await api.listTasks({ page })
+      all.push(...result.content)
+      if (result.last || result.page >= result.totalPages - 1) break
+      page++
+    }
+    return all
+  },
   createTask: (body: { title: string; estimatedHours?: number; status?: string; assignedUserId?: number; sprintId?: number }) =>
     request<TaskDto>("/api/tasks", { method: "POST", body: JSON.stringify(body) }),
   updateTask: (id: string, body: { title: string; estimatedHours?: number; status?: string; assignedUserId?: number; sprintId?: number }) =>
