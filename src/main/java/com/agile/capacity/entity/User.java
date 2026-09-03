@@ -1,6 +1,7 @@
 package com.agile.capacity.entity;
 
 import jakarta.persistence.*;
+import java.util.ArrayList;
 import java.util.List;
 
 @Entity
@@ -26,7 +27,7 @@ public class User {
     private int dailyCapacityHours;
 
     @OneToMany(mappedBy = "assignedUser", cascade = CascadeType.ALL)
-    private List<Task> tasks;
+    private List<Task> tasks = new ArrayList<>();
 
     // Getters and Setters
     public Long getId() { return id; }

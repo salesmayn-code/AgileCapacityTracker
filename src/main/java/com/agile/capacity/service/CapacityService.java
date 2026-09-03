@@ -14,15 +14,6 @@ public class CapacityService {
     @Autowired
     private UserRepository userRepository;
 
-    @Deprecated
-    public java.util.Map<User, Integer> calculateWorkload() {
-        return userRepository.findAll().stream()
-                .collect(Collectors.toMap(
-                        user -> user,
-                        user -> user.getTasks().stream().mapToInt(Task::getEstimatedHours).sum()
-                ));
-    }
-
     public List<WorkloadDto> getWorkload() {
         return userRepository.findAll().stream()
                 .map(user -> new WorkloadDto(
