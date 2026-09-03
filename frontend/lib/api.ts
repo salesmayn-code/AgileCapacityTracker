@@ -1,6 +1,17 @@
-export const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8080"
-
 export type Role = "admin" | "team_lead" | "developer"
+
+export interface AuthUser {
+  id: number
+  username: string
+  email: string
+  role: Role
+}
+
+export interface LoginResponse {
+  token: string
+  expiresAtEpochSeconds: number
+  user: UserDto
+}
 
 export interface UserDto {
   id: number
@@ -64,8 +75,13 @@ function toQuery(opts?: { page?: number; size?: number }): string {
   return query ? `?${query}` : ""
 }
 
+/**
+ * All API calls are same-origin: the Next.js BFF (app/api/**) proxies them to the
+ * Spring backend and attaches the session JWT from its httpOnly cookie. The
+ * backend URL lives server-side only (BACKEND_URL env) - never exposed to the browser.
+ */
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${API_BASE_URL}${path}`, {
+  const response = await fetch(path, {
     ...init,
     headers: {
       "Content-Type": "application/json",
@@ -108,6 +124,12 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
+  // Auth (BFF routes manage the httpOnly cookie)
+  login: (email: string, password: string) =>
+    request<LoginResponse>("/api/auth/login", { method: "POST", body: JSON.stringify({ email, password }) }),
+  logout: () => request<void>("/api/auth/logout", { method: "POST" }),
+  me: () => request<AuthUser>("/api/auth/me"),
+
   // Users
   listUsers: (opts?: { page?: number; size?: number }) => {
     const query = toQuery(opts)
@@ -126,9 +148,9 @@ export const api = {
     return all
   },
   getUser: (id: number) => request<UserDto>(`/api/users/${id}`),
-  createUser: (body: { username: string; email?: string; role: Role; githubUsername?: string; dailyCapacityHours?: number }) =>
+  createUser: (body: { username: string; email: string; role: Role; password: string; githubUsername?: string; dailyCapacityHours?: number }) =>
     request<UserDto>("/api/users", { method: "POST", body: JSON.stringify(body) }),
-  updateUser: (id: number, body: { username: string; email?: string; role: Role; githubUsername?: string; dailyCapacityHours?: number }) =>
+  updateUser: (id: number, body: { username: string; email?: string; role?: Role; password?: string; githubUsername?: string; dailyCapacityHours?: number }) =>
     request<UserDto>(`/api/users/${id}`, { method: "PUT", body: JSON.stringify(body) }),
   deleteUser: (id: number) => request<void>(`/api/users/${id}`, { method: "DELETE" }),
 
@@ -181,12 +203,13 @@ export const api = {
   // Capacity
   getWorkload: () => request<WorkloadDto[]>("/api/capacity/workload"),
 
-  // GitHub
+  // GitHub (PAT flows via X-GitHub-Token; Authorization is reserved for the session JWT,
+  // which the BFF attaches automatically)
   syncRepo: (ownerAndRepo: string, token?: string) => {
     const [owner, repo] = ownerAndRepo.split("/").map((part) => encodeURIComponent(part.trim()))
     return request<SyncResultDto>(`/api/github/sync/${owner}/${repo}`, {
       method: "POST",
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      headers: token ? { "X-GitHub-Token": token } : {},
     })
   },
 }
