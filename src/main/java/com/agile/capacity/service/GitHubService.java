@@ -3,8 +3,11 @@ package com.agile.capacity.service;
 import com.agile.capacity.dto.Dtos.SyncResultDto;
 import com.agile.capacity.dto.Dtos.TaskDto;
 import com.agile.capacity.entity.Task;
+import com.agile.capacity.github.GitHubClient;
 import com.agile.capacity.repository.TaskRepository;
-import org.kohsuke.github.*;
+import org.kohsuke.github.GHFileNotFoundException;
+import org.kohsuke.github.GHIssue;
+import org.kohsuke.github.GHRepository;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -21,18 +24,22 @@ public class GitHubService {
     private String configuredToken;
 
     private final TaskRepository taskRepository;
+    private final GitHubClient gitHubClient;
 
-    public GitHubService(TaskRepository taskRepository) {
+    public GitHubService(TaskRepository taskRepository, GitHubClient gitHubClient) {
         this.taskRepository = taskRepository;
+        this.gitHubClient = gitHubClient;
     }
 
     /**
      * Fetches open issues from the given repository (owner/name) and upserts them as Tasks.
      * Uses the per-request token if provided; otherwise falls back to the configured
-     * {@code github.api.token}.
+     * {@code github.api.token}. Idempotent: existing tasks are matched by id
+     * {@code GH-<issueNumber>} and only their title is refreshed — estimates, status,
+     * assignee, and sprint links are preserved.
      */
     @Transactional
-    public SyncResultDto fetchTasksFromRepo(String repoName, String requestToken) {
+    public SyncResultDto fetchTasksFromRepo(String owner, String repo, String requestToken) {
         String token = resolveToken(requestToken);
         if (token == null || token.isBlank()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
@@ -40,12 +47,11 @@ public class GitHubService {
         }
 
         try {
-            GitHub github = new GitHubBuilder().withOAuthToken(token).build();
-            GHRepository repo = github.getRepository(repoName);
+            GHRepository repository = gitHubClient.getRepository(token, owner + "/" + repo);
             List<Task> tasks = new ArrayList<>();
             int skipped = 0;
 
-            for (GHIssue issue : repo.getIssues(GHIssueState.OPEN)) {
+            for (GHIssue issue : gitHubClient.listOpenIssues(repository)) {
                 if (issue.isPullRequest()) {
                     skipped++;
                     continue;
@@ -54,10 +60,11 @@ public class GitHubService {
                 Task task = taskRepository.findById(id).orElseGet(() -> {
                     Task t = new Task();
                     t.setId(id);
+                    t.setEstimatedHours(0);
+                    t.setStatus("open");
                     return t;
                 });
                 task.setTitle(issue.getTitle());
-                task.setStatus("open");
                 tasks.add(taskRepository.save(task));
             }
 
@@ -67,7 +74,8 @@ public class GitHubService {
                     .toList();
             return new SyncResultDto(dtos.size(), skipped, dtos);
         } catch (GHFileNotFoundException e) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Repository not found or token lacks access: " + repoName);
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND,
+                    "Repository not found or token lacks access: " + owner + "/" + repo);
         } catch (IOException e) {
             throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "GitHub API error: " + e.getMessage());
         }
