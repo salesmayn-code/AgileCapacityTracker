@@ -1,6 +1,10 @@
 package com.agile.capacity.entity;
 
 import jakarta.persistence.*;
+import org.hibernate.annotations.CreationTimestamp;
+import org.hibernate.annotations.UpdateTimestamp;
+
+import java.time.Instant;
 
 @Entity
 public class Task {
@@ -19,6 +23,14 @@ public class Task {
     @JoinColumn(name = "sprint_id")
     private Sprint sprint;
 
+    @CreationTimestamp
+    @Column(name = "created_at", nullable = false, updatable = false)
+    private Instant createdAt;
+
+    @UpdateTimestamp
+    @Column(name = "updated_at", nullable = false)
+    private Instant updatedAt;
+
     // Getters and Setters
     public String getId() { return id; }
     public void setId(String id) { this.id = id; }
@@ -32,4 +44,6 @@ public class Task {
     public void setAssignedUser(User assignedUser) { this.assignedUser = assignedUser; }
     public Sprint getSprint() { return sprint; }
     public void setSprint(Sprint sprint) { this.sprint = sprint; }
+    public Instant getCreatedAt() { return createdAt; }
+    public Instant getUpdatedAt() { return updatedAt; }
 }

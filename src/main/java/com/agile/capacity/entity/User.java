@@ -1,6 +1,10 @@
 package com.agile.capacity.entity;
 
 import jakarta.persistence.*;
+import org.hibernate.annotations.CreationTimestamp;
+import org.hibernate.annotations.UpdateTimestamp;
+
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -29,6 +33,14 @@ public class User {
     @OneToMany(mappedBy = "assignedUser", cascade = CascadeType.ALL)
     private List<Task> tasks = new ArrayList<>();
 
+    @CreationTimestamp
+    @Column(name = "created_at", nullable = false, updatable = false)
+    private Instant createdAt;
+
+    @UpdateTimestamp
+    @Column(name = "updated_at", nullable = false)
+    private Instant updatedAt;
+
     // Getters and Setters
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
@@ -44,4 +56,6 @@ public class User {
     public void setDailyCapacityHours(int dailyCapacityHours) { this.dailyCapacityHours = dailyCapacityHours; }
     public List<Task> getTasks() { return tasks; }
     public void setTasks(List<Task> tasks) { this.tasks = tasks; }
+    public Instant getCreatedAt() { return createdAt; }
+    public Instant getUpdatedAt() { return updatedAt; }
 }
