@@ -24,6 +24,59 @@ describe("api client", () => {
     expect(API_BASE_URL).toBe("http://localhost:8080")
   })
 
+  it("splits owner/name into two encoded path segments on GitHub sync", async () => {
+    mockFetch(200, { imported: 3, skipped: 1, tasks: [] })
+    await api.syncRepo("octo cat/hello world", "ghp_test")
+    const [url, init] = vi.mocked(fetch).mock.calls[0]
+    expect(url).toBe("http://localhost:8080/api/github/sync/octo%20cat/hello%20world")
+    expect(init?.method).toBe("POST")
+    expect((init?.headers as Record<string, string>)["Authorization"]).toBe("Bearer ghp_test")
+  })
+
+  it("sends the bearer token on GitHub sync", async () => {
+    mockFetch(200, { imported: 3, skipped: 1, tasks: [] })
+    await api.syncRepo("octocat/hello-world", "ghp_test")
+    const [url, init] = vi.mocked(fetch).mock.calls[0]
+    expect(url).toBe("http://localhost:8080/api/github/sync/octocat/hello-world")
+    expect(init?.method).toBe("POST")
+    expect((init?.headers as Record<string, string>)["Authorization"]).toBe("Bearer ghp_test")
+  })
+
+  it("updates sprints via PUT", async () => {
+    mockFetch(200, { id: 1, name: "Renamed", startDate: null, endDate: null, totalEstimatedHours: 0, taskCount: 0 })
+    const updated = await api.updateSprint(1, { name: "Renamed" })
+    expect(updated.name).toBe("Renamed")
+    const [url, init] = vi.mocked(fetch).mock.calls[0]
+    expect(url).toBe("http://localhost:8080/api/sprints/1")
+    expect(init?.method).toBe("PUT")
+    expect(init?.body).toBe(JSON.stringify({ name: "Renamed" }))
+  })
+
+  it("surfaces structured JSON error messages with field errors", async () => {
+    mockFetch(400, {
+      timestamp: "2026-09-03T00:00:00Z",
+      status: 400,
+      error: "Bad Request",
+      message: "Validation failed",
+      fieldErrors: { estimatedHours: "must be zero or more" },
+    })
+    await expect(api.createTask({ title: "x", estimatedHours: -1 })).rejects.toThrow(
+      "Validation failed (estimatedHours: must be zero or more)",
+    )
+  })
+
+  it("surfaces the message field of plain JSON errors", async () => {
+    mockFetch(409, {
+      timestamp: "2026-09-03T00:00:00Z",
+      status: 409,
+      error: "Conflict",
+      message: "Duplicate value: username or email already exists",
+    })
+    await expect(api.createUser({ username: "dup", role: "admin" })).rejects.toThrow(
+      "Duplicate value",
+    )
+  })
+
   it("lists users via GET /api/users", async () => {
     mockFetch(200, [{ id: 1, username: "alice" }])
     const users = await api.listUsers()
@@ -65,15 +118,6 @@ describe("api client", () => {
       vi.fn().mockResolvedValue(new Response(null, { status: 404 })),
     )
     await expect(api.getUser(999)).rejects.toThrow("404")
-  })
-
-  it("sends the bearer token on GitHub sync", async () => {
-    mockFetch(200, { imported: 3, skipped: 1, tasks: [] })
-    await api.syncRepo("octocat/hello-world", "ghp_test")
-    const [url, init] = vi.mocked(fetch).mock.calls[0]
-    expect(url).toBe("http://localhost:8080/api/github/sync/octocat/hello-world")
-    expect(init?.method).toBe("POST")
-    expect((init?.headers as Record<string, string>)["Authorization"]).toBe("Bearer ghp_test")
   })
 
   it("omits the auth header when no token is given", async () => {
