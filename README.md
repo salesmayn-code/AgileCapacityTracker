@@ -46,16 +46,16 @@ GitHub Issues
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/api/users` | List team members |
+| GET | `/api/users` | List team members (paginated: `?page=&size=`, size capped at 100) |
 | GET | `/api/users/{id}` | Get one member |
 | POST | `/api/users` | Create member (`username`, `role`, `email?`, `githubUsername?`, `dailyCapacityHours?`) |
 | PUT | `/api/users/{id}` | Update member |
 | DELETE | `/api/users/{id}` | Delete member (cascades tasks) |
-| GET | `/api/sprints` | List sprints (with computed task count + hours) |
+| GET | `/api/sprints` | List sprints (paginated; computed task count + hours via grouped aggregates) |
 | POST | `/api/sprints` | Create sprint (`name`, `startDate?`, `endDate?` ISO dates) |
 | PUT | `/api/sprints/{id}` | Update sprint (dates validated: end ≥ start) |
 | DELETE | `/api/sprints/{id}` | Delete sprint (cascades tasks) |
-| GET | `/api/tasks` | List tasks (with assignee + sprint names) |
+| GET | `/api/tasks` | List tasks (paginated; assignee + sprint fetched with the page — no N+1) |
 | POST | `/api/tasks` | Create task (`title`, `estimatedHours?`, `status?`, `assignedUserId?`, `sprintId?`) |
 | PUT | `/api/tasks/{id}` | Update task |
 | DELETE | `/api/tasks/{id}` | Delete task |
@@ -63,6 +63,16 @@ GitHub Issues
 | POST | `/api/github/sync/{owner}/{repo}` | Import a repo's open issues as tasks (idempotent: existing tasks updated in place); optional `Authorization: Bearer <token>` header overrides the server's `GITHUB_API_TOKEN` |
 
 All error responses share a consistent JSON body (`timestamp`, `status`, `error`, `message`, and `fieldErrors` for validation failures). Duplicate username/email → **409**; invalid input → **400** with per-field details.
+
+List endpoints return a stable paginated envelope:
+
+```json
+{ "content": [...], "page": 0, "size": 20, "totalElements": 42, "totalPages": 3, "last": false }
+```
+
+## Database schema
+
+The schema is managed by **Flyway** migrations (`src/main/resources/db/migration/`), applied at boot; Hibernate runs in `validate` mode (no auto-DDL). Entities carry audit timestamps (`createdAt`/`updatedAt`) populated automatically on write.
 
 ## Getting Started
 
@@ -153,7 +163,6 @@ Authentication is a client-side mock (any API endpoint is open without it). Demo
 - **Authentication is mock** — the login page checks hardcoded demo users; API endpoints require no credentials.
 - **Sprint length is hardcoded to 10 days** — in the backend (`CapacityService`) and in three frontend components; sprint start/end dates are stored but ignored by the math.
 - **Imported GitHub issues carry no hour estimates** — they import with 0h; set estimates per task (preserved on re-sync).
-- **Schema via `ddl-auto=update`** — no migration tooling (Flyway/Liquibase) yet.
 
 ## Project structure
 
