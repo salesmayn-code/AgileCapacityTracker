@@ -2,16 +2,16 @@
 
 A full-stack application for tracking agile team capacity: manage team members, sprints, and tasks, import GitHub issues, and visualize each member's workload against their allocated capacity.
 
-**Status: work in progress** — the frontend and backend are fully integrated (live CRUD + workload data). Authentication is still mock and the GitHub import has a known defect (see [Known limitations](#known-limitations)).
+**Status: work in progress** — the frontend and backend are fully integrated (live CRUD, real authentication via the BFF proxy, and server-computed capacity data). Remaining rough edges are listed under [Known limitations](#known-limitations).
 
 ## Features
 
 - **Team management** — create, update, and remove team members with role (`admin` / `team_lead` / `developer`), GitHub username, and daily capacity in hours. Persisted in PostgreSQL.
 - **Sprint management** — create sprints with start/end dates; task count and total estimated hours are computed live from real task data.
 - **Task tracking** — full CRUD for tasks with hour estimates, status (`open` / `in_progress` / …), assignee, and sprint. Deleting a member or sprint cascades to their tasks.
-- **Capacity dashboard** — per-member *used vs allocated* hours, average team capacity, overallocation count, and live charts driven by the backend workload API.
+- **Capacity dashboard** — per-member *used vs allocated* hours and percentages, average team capacity, overallocation count, and live charts driven by the backend workload API. Sprint length is derived from sprint dates (weekdays only), all math computed server-side.
 - **GitHub issue import** — pull a repository's open issues as tasks using a GitHub PAT, sent per-request from the UI (no token stored server-side). *(See limitations below.)*
-- **Settings** — default working-hours-per-day (drives all capacity math) and GitHub token, persisted per browser.
+- **Team settings** — working hours per day is a shared server-side setting (admin-managed via the Settings page), driving all capacity math for everyone.
 
 ## Tech Stack
 
@@ -59,7 +59,9 @@ GitHub Issues
 | POST | `/api/tasks` | Create task (`title`, `estimatedHours?`, `status?`, `assignedUserId?`, `sprintId?`) |
 | PUT | `/api/tasks/{id}` | Update task |
 | DELETE | `/api/tasks/{id}` | Delete task |
-| GET | `/api/capacity/workload` | Per-member workload: `dailyCapacityHours`, `allocatedHours`, `usedHours` |
+| GET | `/api/capacity/workload` | Capacity envelope: `{sprintDays, sprintName, sprintActive, workingHoursPerDay, team[]}` — per-member `allocatedHours`, `usedHours`, `usedPercent`, `allocatedPercent`, all computed server-side |
+| GET | `/api/settings` | Team settings (`workingHoursPerDay`) — any authenticated user |
+| PUT | `/api/settings` | Update team settings — admin only (`workingHoursPerDay`, 1–24) |
 | POST | `/api/github/sync/{owner}/{repo}` | Import a repo's open issues as tasks (idempotent: existing tasks updated in place); optional `X-GitHub-Token` header overrides the server's `GITHUB_API_TOKEN` |
 
 ## Authentication
@@ -132,7 +134,7 @@ BACKEND_URL=http://localhost:8080
 mvn spring-boot:run        # http://localhost:8080
 ```
 
-Hibernate `ddl-auto=update` creates the schema on first boot.
+Flyway applies migrations (`V1`–`V4`) at boot; Hibernate runs `ddl-auto=validate` (no auto-DDL).
 
 ### Run the frontend
 
@@ -152,8 +154,8 @@ Other scripts: `pnpm lint`, `pnpm test` (vitest), `pnpm build`.
 mvn test
 ```
 
-- Unit tests: `TrackerService` (validation + CRUD), `CapacityService` (workload math), `GitHubService` (token resolution), `TaskIdGenerator` (id format), `JwtService` (issue/parse/reject), `AuthService` (login, 401s, session resolution)
-- Integration test (`ApiIntegrationTest`): real login flow, anonymous 401s, role matrix 401/403, full CRUD over HTTP, workload math, cascade deletes, validation/409 error paths
+- Unit tests: `TrackerService` (validation + CRUD + team settings), `CapacityService` (workload v2 math), `SprintLengthCalculator` (weekday counts, fallbacks, active-range edges), `GitHubService` (token resolution), `TaskIdGenerator` (id format), `JwtService` (issue/parse/reject), `AuthService` (login, 401s, session resolution)
+- Integration test (`ApiIntegrationTest`): real login flow, anonymous 401s, role matrix 401/403, full CRUD over HTTP, workload v2 envelope (live dates around today), settings auth matrix, cascade deletes, validation/409 error paths
 
 **Frontend** — Vitest + Testing Library (jsdom):
 
@@ -162,8 +164,8 @@ cd frontend
 pnpm test
 ```
 
-- API client (same-origin paths, request shapes, X-GitHub-Token, error propagation, pagination)
-- Settings helpers (localStorage persistence/fallbacks) and capacity-percent derivation
+- API client (same-origin paths, request shapes, X-GitHub-Token, workload envelope, error propagation, pagination)
+- Team settings API (GET/PUT `/api/settings`, validation-error surfacing)
 - Auth provider (BFF login/logout/session-restore/rejection through the real flow)
 - BFF route handlers (cookie set/clear, JWT forwarding, upstream error passthrough)
 
@@ -175,13 +177,16 @@ Use the bootstrap admin account you configured (`ADMIN_EMAIL`/`ADMIN_PASSWORD`);
 
 ## Configuration & capacity math
 
-- **Working hours per day** — set on the Settings page (persisted in the browser). Capacity % = `usedHours / (10 × hours/day)`.
-- **Allocated hours** — the backend computes `dailyCapacityHours × 10` (10 = assumed sprint length; see limitations).
+All capacity math is computed **server-side** (single source of truth); the frontend renders it.
+
+- **Sprint length** = count of weekdays (Mon–Fri) between the sprint's `startDate`/`endDate`, inclusive. The "active" sprint is the one whose range contains today; when no dated sprint is active, the workload falls back to 10 weekdays and reports `sprintActive: false`.
+- **Working hours per day** — shared team setting (`GET`/`PUT /api/settings`, admin-managed; default 8).
+- **Capacity %** — `usedHours / (sprintDays × workingHoursPerDay) × 100`, delivered per member as `usedPercent`/`allocatedPercent`.
+- **Allocated hours** — `dailyCapacityHours × sprintDays` per member.
 - **GitHub token** — entered on the GitHub page and kept in the browser's `localStorage`; sent per request via the `X-GitHub-Token` header (through the BFF). The backend never stores it.
 
 ## Known limitations
 
-- **Sprint length is hardcoded to 10 days** — in the backend (`CapacityService`) and in three frontend components; sprint start/end dates are stored but ignored by the math.
 - **Imported GitHub issues carry no hour estimates** — they import with 0h; set estimates per task (preserved on re-sync).
 - **GitHub PAT lives in browser localStorage** — readable by scripts on the page (XSS surface). The session JWT is httpOnly-cookie-protected, but the GitHub PAT trade-off remains.
 - **No refresh tokens** — 12h JWT expiry; users re-login daily.
@@ -193,12 +198,12 @@ Use the bootstrap admin account you configured (`ADMIN_EMAIL`/`ADMIN_PASSWORD`);
 ├── src/main/java/com/agile/capacity/
 │   ├── Main.java                  # entry point
 │   ├── config/WebConfig.java       # CORS
-│   ├── controller/                # User, Sprint, Task, Capacity, GitHub controllers
+│   ├── controller/               # User, Sprint, Task, Capacity, GitHub, Settings, Auth controllers
 │   ├── dto/Dtos.java              # request/response records
-│   ├── entity/                    # User, Sprint, Task (JPA)
+│   ├── entity/                   # User, Sprint, Task, TeamSettings (JPA)
 │   ├── repository/                # Spring Data JPA
-│   ├── service/                   # TrackerService (CRUD), CapacityService, GitHubService
-│   └── util/TaskIdGenerator.java
+│   ├── service/                   # TrackerService (CRUD + settings), CapacityService, GitHubService
+│   └── util/                       # TaskIdGenerator, SprintLengthCalculator
 ├── src/main/resources/application.properties
 ├── src/test/                        # JUnit + Spring Boot integration tests (H2)
 ├── .github/workflows/ci.yml          # CI: backend verify + frontend lint/test/build

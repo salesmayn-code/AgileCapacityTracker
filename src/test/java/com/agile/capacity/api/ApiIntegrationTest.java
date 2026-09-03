@@ -2,6 +2,7 @@ package com.agile.capacity.api;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.agile.capacity.Main;
+import com.agile.capacity.util.SprintLengthCalculator;
 import org.junit.jupiter.api.MethodOrderer;
 import org.junit.jupiter.api.Order;
 import org.junit.jupiter.api.Test;
@@ -16,6 +17,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 
@@ -68,6 +70,11 @@ class ApiIntegrationTest {
     @SuppressWarnings("unchecked")
     private List<Map<String, Object>> contentOf(String path, String token) {
         return (List<Map<String, Object>>) body(get(path, token)).get("content");
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<Map<String, Object>> workloadTeam(String token) {
+        return (List<Map<String, Object>>) body(get("/api/capacity/workload", token)).get("team");
     }
 
     private ResponseEntity<String> get(String path, String token) {
@@ -278,13 +285,13 @@ class ApiIntegrationTest {
         assertThat(refreshed.get("taskCount")).isEqualTo(1);
         assertThat(refreshed.get("totalEstimatedHours")).isEqualTo(12);
 
-        @SuppressWarnings("unchecked")
-        List<Map<String, Object>> workload = bodyList(rest.exchange("/api/capacity/workload",
-                HttpMethod.GET, new HttpEntity<>(authed(admin)), String.class));
-        Map<String, Object> bob = workload.stream()
+        // workload v2: bob's row inside the envelope (no active sprint covers 2026-09-01..14 today, or one may exist;
+        // assert via the envelope's own team list, not raw response shape)
+        Map<String, Object> bob = workloadTeam(admin).stream()
                 .filter(w -> "bob".equals(w.get("username")))
                 .findFirst().orElseThrow();
-        assertThat(((Number) bob.get("allocatedHours")).intValue()).isEqualTo(60); // 6 * 10
+        assertThat(((Number) bob.get("allocatedHours")).intValue())
+                .isEqualTo(6 * ((Number) body(get("/api/capacity/workload", admin)).get("sprintDays")).intValue());
         assertThat(((Number) bob.get("usedHours")).intValue()).isEqualTo(12);
 
         assertThat(delete("/api/sprints/" + sprintId, admin).getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
@@ -294,6 +301,93 @@ class ApiIntegrationTest {
 
     @Test
     @Order(7)
+    void workloadV2ComputesCapacityServerSide() {
+        String admin = login(ADMIN_EMAIL, ADMIN_PASSWORD);
+        Number userId = createUser(admin, "wanda", "wanda@test.local", "developer", "wanda-pass-12");
+
+        // A dated sprint whose range covers today
+        LocalDate today = LocalDate.now();
+        LocalDate start = today.minusDays(2);
+        LocalDate end = today.plusDays(2);
+        ResponseEntity<String> sprint = post("/api/sprints", admin, Map.of("name", "Workload Sprint",
+                "startDate", start.toString(), "endDate", end.toString()));
+        assertThat(sprint.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        Number sprintId = (Number) body(sprint).get("id");
+
+        ResponseEntity<String> task = post("/api/tasks", admin, Map.of("title", "Workload task",
+                "estimatedHours", 6, "status", "open", "assignedUserId", userId, "sprintId", sprintId));
+        assertThat(task.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+
+        Map<String, Object> envelope = body(get("/api/capacity/workload", admin));
+        assertThat(envelope.get("sprintName")).isEqualTo("Workload Sprint");
+        assertThat(envelope.get("sprintActive")).isEqualTo(true);
+        int expectedDays = SprintLengthCalculator.weekdayCount(start, end);
+        assertThat(((Number) envelope.get("sprintDays")).intValue()).isEqualTo(expectedDays);
+        assertThat(((Number) envelope.get("workingHoursPerDay")).intValue()).isEqualTo(8); // V4 seed
+
+        Map<String, Object> wanda = ((List<Map<String, Object>>) envelope.get("team")).stream()
+                .filter(w -> "wanda".equals(w.get("username")))
+                .findFirst().orElseThrow();
+        int allocated = ((Number) wanda.get("allocatedHours")).intValue();  // 6h/day * sprintDays
+        assertThat(allocated).isEqualTo(6 * expectedDays);
+        assertThat(((Number) wanda.get("usedHours")).intValue()).isEqualTo(6);
+        // percentages: 6 used / (days * 8) * 100
+        assertThat(((Number) wanda.get("usedPercent")).intValue())
+                .isEqualTo(Math.round(6f * 100 / (expectedDays * 8)));
+        assertThat(((Number) wanda.get("allocatedPercent")).intValue())
+                .isEqualTo(Math.round(6f * expectedDays * 100 / (expectedDays * 8f)));
+
+        assertThat(delete("/api/sprints/" + sprintId, admin).getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+        assertThat(delete("/api/users/" + userId, admin).getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+    }
+
+    @Test
+    @Order(8)
+    void workloadFallsBackWhenNoActiveSprint() {
+        String admin = login(ADMIN_EMAIL, ADMIN_PASSWORD);
+        Map<String, Object> envelope = body(get("/api/capacity/workload", admin));
+        // No sprint covers "today" in this isolated test run (workload sprint was deleted above)
+        assertThat(envelope.get("sprintActive")).isEqualTo(false);
+        assertThat(((Number) envelope.get("sprintDays")).intValue()).isEqualTo(10);
+        assertThat(envelope.get("sprintName")).isNull();
+    }
+
+    @Test
+    @Order(9)
+    void teamSettingsAuthMatrixAndFlow() {
+        String admin = login(ADMIN_EMAIL, ADMIN_PASSWORD);
+        Number devId = createUser(admin, "dev-settings", "dev-settings@test.local", "developer", "dev-pass-1234");
+        String dev = login("dev-settings@test.local", "dev-pass-1234");
+
+        // seeded row readable by any authenticated user
+        Map<String, Object> initial = body(get("/api/settings", dev));
+        assertThat(initial.get("workingHoursPerDay")).isEqualTo(8);
+
+        // developer cannot write
+        assertThat(put("/api/settings", dev, Map.of("workingHoursPerDay", 6)).getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+
+        // admin writes and the value flows into the workload envelope
+        ResponseEntity<String> updated = put("/api/settings", admin, Map.of("workingHoursPerDay", 6));
+        assertThat(updated.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(body(updated).get("workingHoursPerDay")).isEqualTo(6);
+        assertThat(((Number) body(get("/api/capacity/workload", admin)).get("workingHoursPerDay")).intValue())
+                .isEqualTo(6);
+
+        // out-of-range values -> 400
+        assertThat(put("/api/settings", admin, Map.of("workingHoursPerDay", 0)).getStatusCode())
+                .isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(put("/api/settings", admin, Map.of("workingHoursPerDay", 25)).getStatusCode())
+                .isEqualTo(HttpStatus.BAD_REQUEST);
+
+        // restore the default for later tests
+        assertThat(put("/api/settings", admin, Map.of("workingHoursPerDay", 8)).getStatusCode())
+                .isEqualTo(HttpStatus.OK);
+        assertThat(delete("/api/users/" + devId, admin).getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+    }
+
+    @Test
+    @Order(10)
     void validationAndDuplicateErrors() {
         String admin = login(ADMIN_EMAIL, ADMIN_PASSWORD);
 
@@ -338,7 +432,7 @@ class ApiIntegrationTest {
     }
 
     @Test
-    @Order(8)
+    @Order(11)
     void syncRouteStillReachableOffline() {
         String admin = login(ADMIN_EMAIL, ADMIN_PASSWORD);
         // No token configured/provided -> service fails fast with 400 before any GitHub call

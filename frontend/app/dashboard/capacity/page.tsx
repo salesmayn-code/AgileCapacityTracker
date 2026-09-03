@@ -1,14 +1,12 @@
 "use client"
 
 import { useCallback, useEffect, useState } from "react"
-import { api, getWorkingHoursPerDay, toCapacityPercent, type WorkloadDto } from "@/lib/api"
+import { api, type WorkloadResponseDto } from "@/lib/api"
 import { Button } from "@/components/ui/button"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { RefreshCw } from "lucide-react"
 import { useToast } from "@/components/ui/use-toast"
-
-const SPRINT_DAYS = 10
 
 function statusFor(used: number, allocated: number): { label: string; className: string } {
   if (used > allocated) return { label: "Overallocated", className: "border-red-500 text-red-500" }
@@ -18,9 +16,8 @@ function statusFor(used: number, allocated: number): { label: string; className:
 
 export default function CapacityPage() {
   const { toast } = useToast()
-  const [workload, setWorkload] = useState<WorkloadDto[]>([])
+  const [workload, setWorkload] = useState<WorkloadResponseDto | null>(null)
   const [loading, setLoading] = useState(true)
-  const [workingHours, setWorkingHours] = useState(8)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -38,7 +35,6 @@ export default function CapacityPage() {
   }, [toast])
 
   useEffect(() => {
-    setWorkingHours(getWorkingHoursPerDay())
     void load()
   }, [load])
 
@@ -48,7 +44,9 @@ export default function CapacityPage() {
         <div>
           <h2 className="text-3xl font-bold tracking-tight">Capacity Management</h2>
           <p className="text-muted-foreground">
-            Track and manage your team&apos;s capacity (100% = {SPRINT_DAYS} days × {workingHours}h/day)
+            {workload
+              ? `100% = ${workload.sprintDays} weekdays${workload.sprintActive ? ` (${workload.sprintName})` : " (no active sprint)"} × ${workload.workingHoursPerDay}h/day`
+              : "Track and manage your team's capacity"}
           </p>
         </div>
         <Button variant="outline" onClick={load} disabled={loading}>
@@ -76,20 +74,16 @@ export default function CapacityPage() {
                   Loading workload…
                 </TableCell>
               </TableRow>
-            ) : workload.length === 0 ? (
+            ) : !workload || workload.team.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={6} className="text-center text-muted-foreground">
                   No team members yet. Add members on the Team page.
                 </TableCell>
               </TableRow>
             ) : (
-              workload.map((entry) => {
-                const allocated = toCapacityPercent(
-                  { ...entry, usedHours: entry.allocatedHours },
-                  SPRINT_DAYS,
-                  workingHours
-                )
-                const used = toCapacityPercent(entry, SPRINT_DAYS, workingHours)
+              workload.team.map((entry) => {
+                const allocated = entry.allocatedPercent
+                const used = entry.usedPercent
                 const status = statusFor(entry.usedHours, entry.allocatedHours)
                 return (
                   <TableRow key={entry.userId}>

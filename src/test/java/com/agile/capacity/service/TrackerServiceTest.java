@@ -4,12 +4,16 @@ import com.agile.capacity.dto.Dtos.SprintDto;
 import com.agile.capacity.dto.Dtos.SprintRequest;
 import com.agile.capacity.dto.Dtos.TaskDto;
 import com.agile.capacity.dto.Dtos.TaskRequest;
+import com.agile.capacity.dto.Dtos.TeamSettingsDto;
+import com.agile.capacity.dto.Dtos.TeamSettingsRequest;
 import com.agile.capacity.dto.Dtos.UserDto;
 import com.agile.capacity.dto.Dtos.UserRequest;
 import com.agile.capacity.entity.Sprint;
+import com.agile.capacity.entity.TeamSettings;
 import com.agile.capacity.entity.User;
 import com.agile.capacity.repository.SprintRepository;
 import com.agile.capacity.repository.TaskRepository;
+import com.agile.capacity.repository.TeamSettingsRepository;
 import com.agile.capacity.repository.UserRepository;
 import com.agile.capacity.util.TaskIdGenerator;
 import org.junit.jupiter.api.BeforeEach;
@@ -46,6 +50,9 @@ class TrackerServiceTest {
 
     @Mock
     private org.springframework.security.crypto.password.PasswordEncoder passwordEncoder;
+
+    @Mock
+    private TeamSettingsRepository teamSettingsRepository;
 
     @InjectMocks
     private TrackerService trackerService;
@@ -247,5 +254,61 @@ class TrackerServiceTest {
                 .isInstanceOf(ResponseStatusException.class)
                 .satisfies(e -> assertThat(((ResponseStatusException) e).getStatusCode())
                         .isEqualTo(HttpStatus.BAD_REQUEST));
+    }
+
+    // ---- team settings ----
+
+    @Test
+    void getTeamSettingsReadsSeededRow() {
+        when(teamSettingsRepository.findById(1L)).thenReturn(Optional.of(settings(6)));
+
+        assertThat(trackerService.getTeamSettings()).isEqualTo(new TeamSettingsDto(6));
+    }
+
+    @Test
+    void getTeamSettingsDefaultsTo8WhenRowMissing() {
+        when(teamSettingsRepository.findById(1L)).thenReturn(Optional.empty());
+
+        assertThat(trackerService.getTeamSettings()).isEqualTo(new TeamSettingsDto(8));
+    }
+
+    @Test
+    void updateTeamSettingsSavesRangeCheckedValue() {
+        TeamSettings existing = settings(8);
+        when(teamSettingsRepository.findById(1L)).thenReturn(Optional.of(existing));
+        when(teamSettingsRepository.save(any(TeamSettings.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        TeamSettingsDto dto = trackerService.updateTeamSettings(new TeamSettingsRequest(12));
+
+        assertThat(dto.workingHoursPerDay()).isEqualTo(12);
+        assertThat(existing.getWorkingHoursPerDay()).isEqualTo(12);
+    }
+
+    @Test
+    void updateTeamSettingsRejectsOutOfRangeValues() {
+        assertThatThrownBy(() -> trackerService.updateTeamSettings(new TeamSettingsRequest(0)))
+                .isInstanceOf(ResponseStatusException.class)
+                .satisfies(e -> assertThat(((ResponseStatusException) e).getStatusCode())
+                        .isEqualTo(HttpStatus.BAD_REQUEST));
+        assertThatThrownBy(() -> trackerService.updateTeamSettings(new TeamSettingsRequest(25)))
+                .isInstanceOf(ResponseStatusException.class)
+                .satisfies(e -> assertThat(((ResponseStatusException) e).getStatusCode())
+                        .isEqualTo(HttpStatus.BAD_REQUEST));
+    }
+
+    @Test
+    void updateTeamSettingsCreatesRowWhenMissing() {
+        when(teamSettingsRepository.findById(1L)).thenReturn(Optional.empty());
+        when(teamSettingsRepository.save(any(TeamSettings.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        assertThat(trackerService.updateTeamSettings(new TeamSettingsRequest(7)))
+                .isEqualTo(new TeamSettingsDto(7));
+    }
+
+    private TeamSettings settings(int hours) {
+        TeamSettings settings = new TeamSettings();
+        settings.setId(1L);
+        settings.setWorkingHoursPerDay(hours);
+        return settings;
     }
 }

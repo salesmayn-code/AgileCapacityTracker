@@ -1,7 +1,10 @@
 package com.agile.capacity.dto;
 
 import jakarta.validation.constraints.Email;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.PositiveOrZero;
 import jakarta.validation.constraints.Size;
@@ -47,7 +50,23 @@ public final class Dtos {
             Long sprintId) {}
 
     public record WorkloadDto(Long userId, String username, String role,
-                              int dailyCapacityHours, int allocatedHours, int usedHours) {}
+                              int dailyCapacityHours, int allocatedHours, int usedHours,
+                              int usedPercent, int allocatedPercent) {}
+
+    /**
+     * Workload v2 envelope (Phase 9): all capacity math is computed server-side.
+     * sprintDays = weekdays (Mon-Fri) of the current sprint, or the fallback (10)
+     * when no sprint covers today; sprintActive lets the UI label "no active sprint".
+     */
+    public record WorkloadResponseDto(int sprintDays, String sprintName, boolean sprintActive,
+                                      int workingHoursPerDay, List<WorkloadDto> team) {}
+
+    public record TeamSettingsDto(int workingHoursPerDay) {}
+
+    public record TeamSettingsRequest(
+            @NotNull(message = "workingHoursPerDay is required")
+            @Min(value = 1, message = "workingHoursPerDay must be at least 1")
+            @Max(value = 24, message = "workingHoursPerDay must be at most 24") Integer workingHoursPerDay) {}
 
     public record SyncResultDto(int imported, int skipped, List<TaskDto> tasks) {}
 

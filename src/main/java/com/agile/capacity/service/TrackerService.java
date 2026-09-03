@@ -5,14 +5,18 @@ import com.agile.capacity.dto.Dtos.SprintDto;
 import com.agile.capacity.dto.Dtos.SprintRequest;
 import com.agile.capacity.dto.Dtos.TaskDto;
 import com.agile.capacity.dto.Dtos.TaskRequest;
+import com.agile.capacity.dto.Dtos.TeamSettingsDto;
+import com.agile.capacity.dto.Dtos.TeamSettingsRequest;
 import com.agile.capacity.dto.Dtos.UserDto;
 import com.agile.capacity.dto.Dtos.UserRequest;
 import com.agile.capacity.entity.Sprint;
 import com.agile.capacity.entity.Task;
+import com.agile.capacity.entity.TeamSettings;
 import com.agile.capacity.entity.User;
 import com.agile.capacity.repository.SprintStats;
 import com.agile.capacity.repository.SprintRepository;
 import com.agile.capacity.repository.TaskRepository;
+import com.agile.capacity.repository.TeamSettingsRepository;
 import com.agile.capacity.repository.UserRepository;
 import com.agile.capacity.util.PageRequests;
 import com.agile.capacity.util.TaskIdGenerator;
@@ -44,15 +48,17 @@ public class TrackerService {
     private final TaskRepository taskRepository;
     private final TaskIdGenerator taskIdGenerator;
     private final PasswordEncoder passwordEncoder;
+    private final TeamSettingsRepository teamSettingsRepository;
 
     public TrackerService(UserRepository userRepository, SprintRepository sprintRepository,
-                          TaskRepository taskRepository, TaskIdGenerator taskIdGenerator,
-                          PasswordEncoder passwordEncoder) {
+                           TaskRepository taskRepository, TaskIdGenerator taskIdGenerator,
+                           PasswordEncoder passwordEncoder, TeamSettingsRepository teamSettingsRepository) {
         this.userRepository = userRepository;
         this.sprintRepository = sprintRepository;
         this.taskRepository = taskRepository;
         this.taskIdGenerator = taskIdGenerator;
         this.passwordEncoder = passwordEncoder;
+        this.teamSettingsRepository = teamSettingsRepository;
     }
 
     // ---- Users ----
@@ -218,6 +224,39 @@ public class TrackerService {
                 task.getAssignedUser() == null ? null : task.getAssignedUser().getUsername(),
                 task.getSprint() == null ? null : task.getSprint().getId(),
                 task.getSprint() == null ? null : task.getSprint().getName());
+    }
+
+    // ---- Team settings ----
+
+    public TeamSettingsDto getTeamSettings() {
+        return new TeamSettingsDto(getWorkingHoursPerDay());
+    }
+
+    @Transactional
+    public TeamSettingsDto updateTeamSettings(TeamSettingsRequest request) {
+        int hours = request.workingHoursPerDay();
+        if (hours < 1 || hours > 24) {
+            throw badRequest("workingHoursPerDay must be between 1 and 24");
+        }
+        TeamSettings settings = requireTeamSettings();
+        settings.setWorkingHoursPerDay(hours);
+        return new TeamSettingsDto(teamSettingsRepository.save(settings).getWorkingHoursPerDay());
+    }
+
+    private int getWorkingHoursPerDay() {
+        return teamSettingsRepository.findById(TeamSettingsRepository.SINGLETON_ID)
+                .map(TeamSettings::getWorkingHoursPerDay)
+                .orElse(8);
+    }
+
+    private TeamSettings requireTeamSettings() {
+        return teamSettingsRepository.findById(TeamSettingsRepository.SINGLETON_ID)
+                .orElseGet(() -> {
+                    TeamSettings created = new TeamSettings();
+                    created.setId(TeamSettingsRepository.SINGLETON_ID);
+                    created.setWorkingHoursPerDay(8);
+                    return teamSettingsRepository.save(created);
+                });
     }
 
     // ---- helpers ----

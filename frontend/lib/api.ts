@@ -49,6 +49,24 @@ export interface WorkloadDto {
   dailyCapacityHours: number
   allocatedHours: number
   usedHours: number
+  /** Server-computed (Phase 9): used / (sprintDays × workingHoursPerDay) × 100 */
+  usedPercent: number
+  /** Server-computed (Phase 9): allocated / (sprintDays × workingHoursPerDay) × 100 */
+  allocatedPercent: number
+}
+
+/** Workload v2 envelope (Phase 9): all capacity math computed server-side. */
+export interface WorkloadResponseDto {
+  /** Weekdays (Mon-Fri) of the active sprint, or 10 when none covers today */
+  sprintDays: number
+  sprintName: string | null
+  sprintActive: boolean
+  workingHoursPerDay: number
+  team: WorkloadDto[]
+}
+
+export interface TeamSettingsDto {
+  workingHoursPerDay: number
 }
 
 export interface SyncResultDto {
@@ -201,7 +219,12 @@ export const api = {
   deleteTask: (id: string) => request<void>(`/api/tasks/${id}`, { method: "DELETE" }),
 
   // Capacity
-  getWorkload: () => request<WorkloadDto[]>("/api/capacity/workload"),
+  getWorkload: () => request<WorkloadResponseDto>("/api/capacity/workload"),
+
+  // Team settings (shared, server-side; admin-only write)
+  getTeamSettings: () => request<TeamSettingsDto>("/api/settings"),
+  updateTeamSettings: (settings: TeamSettingsDto) =>
+    request<TeamSettingsDto>("/api/settings", { method: "PUT", body: JSON.stringify(settings) }),
 
   // GitHub (PAT flows via X-GitHub-Token; Authorization is reserved for the session JWT,
   // which the BFF attaches automatically)
@@ -214,20 +237,9 @@ export const api = {
   },
 }
 
-// ---- settings (localStorage-backed; the Settings page drives these) ----
-
-const WORKING_HOURS_KEY = "act.workingHoursPerDay"
-
-export function getWorkingHoursPerDay(): number {
-  if (typeof window === "undefined") return 8
-  const raw = window.localStorage.getItem(WORKING_HOURS_KEY)
-  const value = raw ? Number.parseInt(raw, 10) : 8
-  return Number.isFinite(value) && value > 0 ? value : 8
-}
-
-export function setWorkingHoursPerDay(hours: number) {
-  window.localStorage.setItem(WORKING_HOURS_KEY, String(hours))
-}
+// ---- settings ----
+// Working hours/day is a shared server-side team setting since Phase 9
+// (GET/PUT /api/settings); only the GitHub PAT remains browser-localStorage.
 
 const GITHUB_TOKEN_KEY = "act.githubToken"
 
@@ -242,15 +254,4 @@ export function setStoredGitHubToken(token: string) {
   } else {
     window.localStorage.removeItem(GITHUB_TOKEN_KEY)
   }
-}
-
-// ---- capacity derivation ----
-
-/**
- * Derives a capacity percentage for a workload entry.
- * Sprint days (or 10 if no sprint bounds) × working hours/day defines 100%.
- */
-export function toCapacityPercent(workload: WorkloadDto, sprintDays: number, workingHoursPerDay: number): number {
-  const total = Math.max(1, sprintDays * workingHoursPerDay)
-  return Math.round((workload.usedHours / total) * 100)
 }

@@ -132,6 +132,32 @@ describe("api client (same-origin BFF paths)", () => {
     expect(fetch).toHaveBeenCalledTimes(2)
   })
 
+  it("getWorkload returns the server-computed envelope with percentages", async () => {
+    const envelope = {
+      sprintDays: 9,
+      sprintName: "Sprint 1",
+      sprintActive: true,
+      workingHoursPerDay: 8,
+      team: [
+        {
+          userId: 1,
+          username: "alice",
+          role: "admin",
+          dailyCapacityHours: 8,
+          allocatedHours: 72,
+          usedHours: 36,
+          usedPercent: 50,
+          allocatedPercent: 100,
+        },
+      ],
+    }
+    mockFetch(200, envelope)
+    const workload = await api.getWorkload()
+    expect(workload).toEqual(envelope)
+    const [url] = vi.mocked(fetch).mock.calls[0]
+    expect(url).toBe("/api/capacity/workload")
+  })
+
   it("creates users via POST", async () => {
     mockFetch(201, { id: 2, username: "bob" })
     const created = await api.createUser({

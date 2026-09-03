@@ -2,9 +2,7 @@
 
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts"
 import { useEffect, useState } from "react"
-import { api, getWorkingHoursPerDay, toCapacityPercent, type WorkloadDto } from "@/lib/api"
-
-const SPRINT_DAYS = 10
+import { api, type WorkloadDto } from "@/lib/api"
 
 interface ChartEntry {
   name: string
@@ -20,16 +18,16 @@ export function TeamCapacityChart({ data }: { data?: ChartEntry[] }) {
     setMounted(true)
     if (data) return
     let cancelled = false
-    const workingHours = getWorkingHoursPerDay()
     api
       .getWorkload()
-      .then((workload: WorkloadDto[]) => {
+      .then((workload) => {
         if (cancelled) return
+        // Percentages are computed server-side (Phase 9); the chart is a pure renderer
         setEntries(
-          workload.map((entry) => ({
+          workload.team.map((entry: WorkloadDto) => ({
             name: entry.username,
-            allocated: toCapacityPercent({ ...entry, usedHours: entry.allocatedHours }, SPRINT_DAYS, workingHours),
-            used: toCapacityPercent(entry, SPRINT_DAYS, workingHours),
+            allocated: entry.allocatedPercent,
+            used: entry.usedPercent,
           }))
         )
       })

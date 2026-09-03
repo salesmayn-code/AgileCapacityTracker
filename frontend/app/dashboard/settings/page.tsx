@@ -10,20 +10,33 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch"
 import { useToast } from "@/components/ui/use-toast"
 import { useAuth } from "@/components/auth-provider"
-import { getStoredGitHubToken, getWorkingHoursPerDay, setStoredGitHubToken, setWorkingHoursPerDay } from "@/lib/api"
+import { api, getStoredGitHubToken, setStoredGitHubToken } from "@/lib/api"
 
 export default function SettingsPage() {
   const { user } = useAuth()
   const { toast } = useToast()
   const [gitHubToken, setGitHubToken] = useState("")
   const [workingHours, setWorkingHours] = useState("8")
+  const [savingWorkingHours, setSavingWorkingHours] = useState(false)
   const [emailNotifications, setEmailNotifications] = useState(true)
   const [capacityAlerts, setCapacityAlerts] = useState(true)
   const [sprintReminders, setSprintReminders] = useState(true)
+  const isAdmin = user?.role === "admin"
 
   useEffect(() => {
     setGitHubToken(getStoredGitHubToken())
-    setWorkingHours(String(getWorkingHoursPerDay()))
+    let cancelled = false
+    api
+      .getTeamSettings()
+      .then((settings) => {
+        if (!cancelled) setWorkingHours(String(settings.workingHoursPerDay))
+      })
+      .catch(() => {
+        // keep the 8h default if the server is unreachable
+      })
+    return () => {
+      cancelled = true
+    }
   }, [])
 
   const handleSaveGitHub = () => {
@@ -36,7 +49,15 @@ export default function SettingsPage() {
     })
   }
 
-  const handleSaveCapacity = () => {
+  const handleSaveCapacity = async () => {
+    if (!isAdmin) {
+      toast({
+        title: "Read-only",
+        description: "Only administrators can change team capacity settings.",
+        variant: "destructive",
+      })
+      return
+    }
     const hours = Number.parseInt(workingHours, 10)
     if (!Number.isFinite(hours) || hours < 1 || hours > 24) {
       toast({
@@ -46,11 +67,23 @@ export default function SettingsPage() {
       })
       return
     }
-    setWorkingHoursPerDay(hours)
-    toast({
-      title: "Capacity settings saved",
-      description: `Capacity percentages now assume ${hours} working hours per day.`,
-    })
+    setSavingWorkingHours(true)
+    try {
+      const saved = await api.updateTeamSettings({ workingHoursPerDay: hours })
+      setWorkingHours(String(saved.workingHoursPerDay))
+      toast({
+        title: "Capacity settings saved",
+        description: `Team capacity now assumes ${saved.workingHoursPerDay} working hours per day.`,
+      })
+    } catch (error) {
+      toast({
+        title: "Failed to save capacity settings",
+        description: error instanceof Error ? error.message : "Unknown error",
+        variant: "destructive",
+      })
+    } finally {
+      setSavingWorkingHours(false)
+    }
   }
 
   const handleSaveNotifications = () => {
@@ -170,11 +203,15 @@ export default function SettingsPage() {
           <Card>
             <CardHeader>
               <CardTitle>Capacity Tracking</CardTitle>
-              <CardDescription>Configure how capacity is calculated and tracked</CardDescription>
+              <CardDescription>
+                Shared team setting stored on the server — sprint length is derived from sprint dates
+                (weekdays only), so only working hours per day is configured here
+                {isAdmin ? "" : " (admin-only)"}
+              </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="space-y-2">
-                <Label htmlFor="working-hours">Default Working Hours Per Day</Label>
+                <Label htmlFor="working-hours">Working Hours Per Day (team-wide)</Label>
                 <Input
                   id="working-hours"
                   type="number"
@@ -182,6 +219,7 @@ export default function SettingsPage() {
                   max="24"
                   value={workingHours}
                   onChange={(e) => setWorkingHours(e.target.value)}
+                  disabled={!isAdmin}
                 />
               </div>
               <div className="space-y-2">
@@ -207,7 +245,9 @@ export default function SettingsPage() {
               </div>
             </CardContent>
             <CardFooter>
-              <Button onClick={handleSaveCapacity}>Save Capacity Settings</Button>
+              <Button onClick={handleSaveCapacity} disabled={!isAdmin || savingWorkingHours}>
+                {savingWorkingHours ? "Saving…" : "Save Capacity Settings"}
+              </Button>
             </CardFooter>
           </Card>
         </TabsContent>

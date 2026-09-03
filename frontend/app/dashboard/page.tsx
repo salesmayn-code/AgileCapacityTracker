@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react"
 import { useAuth } from "@/components/auth-provider"
-import { api, getWorkingHoursPerDay, toCapacityPercent, type SprintDto, type UserDto, type WorkloadDto } from "@/lib/api"
+import { api, type SprintDto, type UserDto, type WorkloadResponseDto } from "@/lib/api"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
@@ -12,8 +12,6 @@ import { TeamCapacityChart } from "@/components/dashboard/team-capacity-chart"
 import { SprintProgress } from "@/components/dashboard/sprint-progress"
 import { RecentActivity } from "@/components/dashboard/recent-activity"
 import { GitHubStats } from "@/components/dashboard/github-stats"
-
-const SPRINT_DAYS = 10
 
 interface Overview {
   teamCapacityPercent: number | null
@@ -30,16 +28,16 @@ export default function DashboardPage() {
   useEffect(() => {
     let cancelled = false
     Promise.all([api.getWorkload(), api.allSprints(), api.allUsers(), api.allTasks()])
-      .then(([workload, sprints, users, tasks]: [WorkloadDto[], SprintDto[], UserDto[], import("@/lib/api").TaskDto[]]) => {
+      .then(([workload, sprints, users, tasks]: [WorkloadResponseDto, SprintDto[], UserDto[], import("@/lib/api").TaskDto[]]) => {
         if (cancelled) return
-        const workingHours = getWorkingHoursPerDay()
         const activeSprints = sprints.filter((s) => {
           if (!s.startDate || !s.endDate) return false
           const today = new Date()
           return today >= new Date(s.startDate) && today <= new Date(s.endDate)
         }).length
-        const percents = workload.map((w) => toCapacityPercent(w, SPRINT_DAYS, workingHours))
-        const overallocated = workload.filter((w) => w.usedHours > w.allocatedHours).length
+        // Percentages arrive server-computed (Phase 9); the dashboard just averages them
+        const percents = workload.team.map((w) => w.usedPercent)
+        const overallocated = workload.team.filter((w) => w.usedHours > w.allocatedHours).length
         setOverview({
           teamCapacityPercent: percents.length ? Math.round(percents.reduce((a, b) => a + b, 0) / percents.length) : null,
           activeSprints,
