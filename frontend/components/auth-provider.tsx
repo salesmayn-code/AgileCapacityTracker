@@ -2,12 +2,13 @@
 
 import type React from "react"
 
-import { createContext, useContext, useEffect, useState } from "react"
+import { createContext, useCallback, useContext, useEffect, useState } from "react"
 import { useRouter, usePathname } from "next/navigation"
+import { api } from "@/lib/api"
 
 type User = {
-  id: string
-  name: string
+  id: number
+  username: string
   email: string
   role: "admin" | "team_lead" | "developer"
 }
@@ -27,42 +28,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter()
   const pathname = usePathname()
 
-  // Mock users for demo
-  const mockUsers = [
-    {
-      id: "1",
-      name: "Admin User",
-      email: "admin@example.com",
-      password: "password",
-      role: "admin" as const,
-    },
-    {
-      id: "2",
-      name: "Team Lead",
-      email: "lead@example.com",
-      password: "password",
-      role: "team_lead" as const,
-    },
-    {
-      id: "3",
-      name: "Developer",
-      email: "dev@example.com",
-      password: "password",
-      role: "developer" as const,
-    },
-  ]
-
   useEffect(() => {
-    // Check if user is stored in localStorage
-    const storedUser = localStorage.getItem("user")
-    if (storedUser) {
-      setUser(JSON.parse(storedUser))
+    // Restore the session from the httpOnly cookie via the BFF
+    let cancelled = false
+    api
+      .me()
+      .then((me) => {
+        if (!cancelled && me.email) setUser(me as User)
+      })
+      .catch(() => {
+        if (!cancelled) setUser(null)
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoading(false)
+      })
+    return () => {
+      cancelled = true
     }
-    setIsLoading(false)
   }, [])
 
   useEffect(() => {
-    // Redirect to login if not authenticated
+    // Redirect to login if not authenticated (public routes excluded)
     if (
       !isLoading &&
       !user &&
@@ -74,33 +60,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, [user, isLoading, pathname, router])
 
-  const login = async (email: string, passwordInput: string) => {
-    setIsLoading(true)
-    try {
-      // Mock authentication
-      const foundUser = mockUsers.find((u) => u.email === email && u.password === passwordInput)
-
-      if (!foundUser) {
-        throw new Error("Invalid credentials")
-      }
-
-      const { password, ...userWithoutPassword } = foundUser
-      void password
-      setUser(userWithoutPassword)
-      localStorage.setItem("user", JSON.stringify(userWithoutPassword))
+  const login = useCallback(
+    async (email: string, password: string) => {
+      const result = await api.login(email, password)
+      if (!result.user.email) throw new Error("Invalid email or password")
+      setUser(result.user as User)
       router.push("/dashboard")
-    } catch (error) {
-      throw error
-    } finally {
-      setIsLoading(false)
-    }
-  }
+    },
+    [router],
+  )
 
-  const logout = () => {
+  const logout = useCallback(() => {
     setUser(null)
-    localStorage.removeItem("user")
+    void Promise.resolve(api.logout()).catch(() => {})
     router.push("/login")
-  }
+  }, [router])
 
   return <AuthContext.Provider value={{ user, login, logout, isLoading }}>{children}</AuthContext.Provider>
 }
