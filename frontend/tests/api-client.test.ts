@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { api, API_BASE_URL } from "@/lib/api"
+import { api } from "@/lib/api"
 
-describe("api client", () => {
+describe("api client (same-origin BFF paths)", () => {
   beforeEach(() => {
     vi.restoreAllMocks()
   })
@@ -20,26 +20,38 @@ describe("api client", () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response))
   }
 
-  it("targets the backend base URL by default", () => {
-    expect(API_BASE_URL).toBe("http://localhost:8080")
+  it("calls same-origin API paths (BFF proxies to the backend)", async () => {
+    mockFetch(200, { content: [], page: 0, size: 20, totalElements: 0, totalPages: 0, last: true })
+    await api.listUsers()
+    const [url] = vi.mocked(fetch).mock.calls[0]
+    expect(url).toBe("/api/users") // relative, same-origin
+  })
+
+  it("logs in through the BFF auth route", async () => {
+    mockFetch(200, { token: "t", expiresAtEpochSeconds: 1, user: { id: 1 } })
+    await api.login("a@b.c", "pw")
+    const [url, init] = vi.mocked(fetch).mock.calls[0]
+    expect(url).toBe("/api/auth/login")
+    expect(init?.method).toBe("POST")
+    expect(init?.body).toBe(JSON.stringify({ email: "a@b.c", password: "pw" }))
   })
 
   it("splits owner/name into two encoded path segments on GitHub sync", async () => {
     mockFetch(200, { imported: 3, skipped: 1, tasks: [] })
     await api.syncRepo("octo cat/hello world", "ghp_test")
     const [url, init] = vi.mocked(fetch).mock.calls[0]
-    expect(url).toBe("http://localhost:8080/api/github/sync/octo%20cat/hello%20world")
+    expect(url).toBe("/api/github/sync/octo%20cat/hello%20world")
     expect(init?.method).toBe("POST")
-    expect((init?.headers as Record<string, string>)["Authorization"]).toBe("Bearer ghp_test")
+    expect((init?.headers as Record<string, string>)["X-GitHub-Token"]).toBe("ghp_test")
   })
 
   it("sends the bearer token on GitHub sync", async () => {
     mockFetch(200, { imported: 3, skipped: 1, tasks: [] })
     await api.syncRepo("octocat/hello-world", "ghp_test")
     const [url, init] = vi.mocked(fetch).mock.calls[0]
-    expect(url).toBe("http://localhost:8080/api/github/sync/octocat/hello-world")
+    expect(url).toBe("/api/github/sync/octocat/hello-world")
     expect(init?.method).toBe("POST")
-    expect((init?.headers as Record<string, string>)["Authorization"]).toBe("Bearer ghp_test")
+    expect((init?.headers as Record<string, string>)["X-GitHub-Token"]).toBe("ghp_test")
   })
 
   it("updates sprints via PUT", async () => {
@@ -47,7 +59,7 @@ describe("api client", () => {
     const updated = await api.updateSprint(1, { name: "Renamed" })
     expect(updated.name).toBe("Renamed")
     const [url, init] = vi.mocked(fetch).mock.calls[0]
-    expect(url).toBe("http://localhost:8080/api/sprints/1")
+    expect(url).toBe("/api/sprints/1")
     expect(init?.method).toBe("PUT")
     expect(init?.body).toBe(JSON.stringify({ name: "Renamed" }))
   })
@@ -72,9 +84,9 @@ describe("api client", () => {
       error: "Conflict",
       message: "Duplicate value: username or email already exists",
     })
-    await expect(api.createUser({ username: "dup", role: "admin" })).rejects.toThrow(
-      "Duplicate value",
-    )
+    await expect(
+      api.createUser({ username: "dup", email: "d@x.co", role: "admin", password: "longpass-1" }),
+    ).rejects.toThrow("Duplicate value")
   })
 
   it("lists users via GET /api/users as a PageDto", async () => {
@@ -90,14 +102,14 @@ describe("api client", () => {
     const users = await api.listUsers()
     expect(users).toEqual(page)
     const [url] = vi.mocked(fetch).mock.calls[0]
-    expect(url).toBe("http://localhost:8080/api/users")
+    expect(url).toBe("/api/users")
   })
 
   it("appends page and size query parameters", async () => {
     mockFetch(200, { content: [], page: 2, size: 5, totalElements: 0, totalPages: 0, last: true })
     await api.listTasks({ page: 2, size: 5 })
     const [url] = vi.mocked(fetch).mock.calls[0]
-    expect(url).toBe("http://localhost:8080/api/tasks?page=2&size=5")
+    expect(url).toBe("/api/tasks?page=2&size=5")
   })
 
   it("allUsers walks every page until last", async () => {
@@ -122,13 +134,23 @@ describe("api client", () => {
 
   it("creates users via POST", async () => {
     mockFetch(201, { id: 2, username: "bob" })
-    const created = await api.createUser({ username: "bob", role: "developer" })
+    const created = await api.createUser({
+      username: "bob",
+      email: "bob@example.com",
+      role: "developer",
+      password: "longpass-1",
+    })
     expect(created).toEqual({ id: 2, username: "bob" })
     expect(fetch).toHaveBeenCalledWith(
-      "http://localhost:8080/api/users",
+      "/api/users",
       expect.objectContaining({
         method: "POST",
-        body: JSON.stringify({ username: "bob", role: "developer" }),
+        body: JSON.stringify({
+          username: "bob",
+          email: "bob@example.com",
+          role: "developer",
+          password: "longpass-1",
+        }),
       }),
     )
   })
@@ -141,9 +163,9 @@ describe("api client", () => {
 
   it("throws with server error body for non-2xx responses", async () => {
     mockFetch(400, "role must be one of [admin, team_lead, developer]")
-    await expect(api.createUser({ username: "x", role: "hacker" })).rejects.toThrow(
-      "role must be one of",
-    )
+    await expect(
+      api.createUser({ username: "x", email: "x@x.co", role: "hacker" as never, password: "longpass-1" }),
+    ).rejects.toThrow("role must be one of")
   })
 
   it("throws with status text when the body is empty", async () => {
@@ -154,13 +176,13 @@ describe("api client", () => {
     await expect(api.getUser(999)).rejects.toThrow("404")
   })
 
-  it("omits the auth header when no token is given", async () => {
+  it("omits the token header when none is given", async () => {
     mockFetch(200, { imported: 0, skipped: 0, tasks: [] })
     await api.syncRepo("octocat/hello-world")
     expect(fetch).toHaveBeenCalledWith(
-      "http://localhost:8080/api/github/sync/octocat/hello-world",
+      "/api/github/sync/octocat/hello-world",
       expect.objectContaining({
-        headers: expect.not.objectContaining({ Authorization: expect.any(String) }),
+        headers: expect.not.objectContaining({ "X-GitHub-Token": expect.any(String) }),
       }),
     )
   })
