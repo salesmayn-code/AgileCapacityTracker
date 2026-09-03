@@ -12,7 +12,7 @@ class TaskIdGeneratorTest {
         TaskIdGenerator generator = new TaskIdGenerator();
         String id = (String) generator.generate(null, Mockito.mock(Object.class));
 
-        assertThat(id).startsWith("GH-").hasSize(11); // "GH-" + 8 chars
+        assertThat(id).startsWith("T-").hasSize(10); // "T-" + 8 chars
     }
 
     @Test

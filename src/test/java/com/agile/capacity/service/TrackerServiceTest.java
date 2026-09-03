@@ -11,6 +11,7 @@ import com.agile.capacity.entity.User;
 import com.agile.capacity.repository.SprintRepository;
 import com.agile.capacity.repository.TaskRepository;
 import com.agile.capacity.repository.UserRepository;
+import com.agile.capacity.util.TaskIdGenerator;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -39,6 +40,9 @@ class TrackerServiceTest {
 
     @Mock
     private TaskRepository taskRepository;
+
+    @Mock
+    private TaskIdGenerator taskIdGenerator;
 
     @InjectMocks
     private TrackerService trackerService;
@@ -161,22 +165,53 @@ class TrackerServiceTest {
     // ---- tasks ----
 
     @Test
-    void createTaskLinksAssigneeAndSprint() {
+    void createTaskAssignsTIdAndLinksAssigneeAndSprint() {
         TaskRequest request = new TaskRequest("Design API", 12, "open", 1L, 1L);
+        when(taskIdGenerator.generate(any(), any())).thenReturn("T-abc12345");
         when(userRepository.findById(1L)).thenReturn(Optional.of(user));
         when(sprintRepository.findById(1L)).thenReturn(Optional.of(sprint));
-        when(taskRepository.save(any(com.agile.capacity.entity.Task.class))).thenAnswer(inv -> {
-            com.agile.capacity.entity.Task t = inv.getArgument(0);
-            t.setId("GH-abc12345");
-            return t;
-        });
+        when(taskRepository.save(any(com.agile.capacity.entity.Task.class))).thenAnswer(inv -> inv.getArgument(0));
 
         TaskDto dto = trackerService.createTask(request);
 
+        assertThat(dto.id()).isEqualTo("T-abc12345");
         assertThat(dto.title()).isEqualTo("Design API");
         assertThat(dto.estimatedHours()).isEqualTo(12);
         assertThat(dto.assignedUsername()).isEqualTo("alice");
         assertThat(dto.sprintName()).isEqualTo("Sprint 1");
+    }
+
+    @Test
+    void updateSprintRenamesAndRevalidatesDates() {
+        SprintRequest request = new SprintRequest("Sprint 1b", "2026-09-02", "2026-09-15");
+        when(sprintRepository.findById(1L)).thenReturn(Optional.of(sprint));
+        when(sprintRepository.save(any(Sprint.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        SprintDto dto = trackerService.updateSprint(1L, request);
+
+        assertThat(dto.name()).isEqualTo("Sprint 1b");
+        assertThat(dto.startDate()).isEqualTo("2026-09-02");
+    }
+
+    @Test
+    void updateSprintRejectsEndDateBeforeStartDate() {
+        SprintRequest request = new SprintRequest("Sprint 1", "2026-09-14", "2026-09-01");
+        when(sprintRepository.findById(1L)).thenReturn(Optional.of(sprint));
+
+        assertThatThrownBy(() -> trackerService.updateSprint(1L, request))
+                .isInstanceOf(ResponseStatusException.class)
+                .satisfies(e -> assertThat(((ResponseStatusException) e).getStatusCode())
+                        .isEqualTo(HttpStatus.BAD_REQUEST));
+    }
+
+    @Test
+    void updateMissingSprintThrows404() {
+        when(sprintRepository.findById(99L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> trackerService.updateSprint(99L, new SprintRequest("x", null, null)))
+                .isInstanceOf(ResponseStatusException.class)
+                .satisfies(e -> assertThat(((ResponseStatusException) e).getStatusCode())
+                        .isEqualTo(HttpStatus.NOT_FOUND));
     }
 
     @Test
