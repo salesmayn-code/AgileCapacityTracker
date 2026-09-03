@@ -39,7 +39,7 @@ GitHub Issues
 ```
 
 - The backend lives at the **repo root** (`pom.xml`, `src/main/java/com/agile/capacity/`); the frontend is in `frontend/` (pnpm).
-- CORS on the backend allows `http://localhost:3000`.
+- CORS on the backend is configurable via `APP_CORS_ALLOWED_ORIGINS` (default `http://localhost:3000`).
 - The frontend API client is `frontend/lib/api.ts` — all dashboard pages use it; no page keeps mock data for its primary content.
 
 ## API Reference
@@ -53,13 +53,16 @@ GitHub Issues
 | DELETE | `/api/users/{id}` | Delete member (cascades tasks) |
 | GET | `/api/sprints` | List sprints (with computed task count + hours) |
 | POST | `/api/sprints` | Create sprint (`name`, `startDate?`, `endDate?` ISO dates) |
+| PUT | `/api/sprints/{id}` | Update sprint (dates validated: end ≥ start) |
 | DELETE | `/api/sprints/{id}` | Delete sprint (cascades tasks) |
 | GET | `/api/tasks` | List tasks (with assignee + sprint names) |
 | POST | `/api/tasks` | Create task (`title`, `estimatedHours?`, `status?`, `assignedUserId?`, `sprintId?`) |
 | PUT | `/api/tasks/{id}` | Update task |
 | DELETE | `/api/tasks/{id}` | Delete task |
 | GET | `/api/capacity/workload` | Per-member workload: `dailyCapacityHours`, `allocatedHours`, `usedHours` |
-| POST | `/api/github/sync/{repo}` | Import a repo's open issues as tasks; optional `Authorization: Bearer <token>` header overrides the server's `GITHUB_API_TOKEN` |
+| POST | `/api/github/sync/{owner}/{repo}` | Import a repo's open issues as tasks (idempotent: existing tasks updated in place); optional `Authorization: Bearer <token>` header overrides the server's `GITHUB_API_TOKEN` |
+
+All error responses share a consistent JSON body (`timestamp`, `status`, `error`, `message`, and `fieldErrors` for validation failures). Duplicate username/email → **409**; invalid input → **400** with per-field details.
 
 ## Getting Started
 
@@ -75,7 +78,7 @@ GitHub Issues
 
 ```powershell
 $env:SPRING_DATASOURCE_PASSWORD="your_db_password"
-$env:GITHUB_API_TOKEN="your_github_token"   # required to boot; used as GitHub-sync fallback
+$env:GITHUB_API_TOKEN="your_github_token"   # optional now — app boots without it; sync needs it or a per-request token
 # optional overrides:
 # $env:SPRING_DATASOURCE_URL="jdbc:postgresql://localhost:5432/agile_capacity"
 # $env:SPRING_DATASOURCE_USERNAME="postgres"
@@ -148,11 +151,9 @@ Authentication is a client-side mock (any API endpoint is open without it). Demo
 ## Known limitations
 
 - **Authentication is mock** — the login page checks hardcoded demo users; API endpoints require no credentials.
-- **GitHub import is currently non-functional end-to-end** — the sync route cannot match `owner/name` repo paths (a slash cannot appear in a single path variable), so the frontend's sync call 404s. Additionally, imported issues carry no hour estimates, and re-syncing would duplicate tasks (the upsert key conflicts with the ID generator). Server-side logic is in place and unit-testable, but treat this feature as broken until fixed.
 - **Sprint length is hardcoded to 10 days** — in the backend (`CapacityService`) and in three frontend components; sprint start/end dates are stored but ignored by the math.
-- **Sprints cannot be edited** — only created and deleted.
+- **Imported GitHub issues carry no hour estimates** — they import with 0h; set estimates per task (preserved on re-sync).
 - **Schema via `ddl-auto=update`** — no migration tooling (Flyway/Liquibase) yet.
-- **CORS pinned to `http://localhost:3000`** — not configurable.
 
 ## Project structure
 
