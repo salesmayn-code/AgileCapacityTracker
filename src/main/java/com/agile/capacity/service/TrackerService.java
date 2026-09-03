@@ -12,6 +12,7 @@ import com.agile.capacity.entity.User;
 import com.agile.capacity.repository.SprintRepository;
 import com.agile.capacity.repository.TaskRepository;
 import com.agile.capacity.repository.UserRepository;
+import com.agile.capacity.util.TaskIdGenerator;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -19,9 +20,9 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.util.List;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 @Service
 public class TrackerService {
@@ -31,17 +32,20 @@ public class TrackerService {
     private final UserRepository userRepository;
     private final SprintRepository sprintRepository;
     private final TaskRepository taskRepository;
+    private final TaskIdGenerator taskIdGenerator;
 
-    public TrackerService(UserRepository userRepository, SprintRepository sprintRepository, TaskRepository taskRepository) {
+    public TrackerService(UserRepository userRepository, SprintRepository sprintRepository,
+                          TaskRepository taskRepository, TaskIdGenerator taskIdGenerator) {
         this.userRepository = userRepository;
         this.sprintRepository = sprintRepository;
         this.taskRepository = taskRepository;
+        this.taskIdGenerator = taskIdGenerator;
     }
 
     // ---- Users ----
 
     public List<UserDto> listUsers() {
-        return userRepository.findAll().stream().map(this::toUserDto).collect(Collectors.toList());
+        return userRepository.findAll().stream().map(this::toUserDto).toList();
     }
 
     public UserDto getUser(Long id) {
@@ -89,30 +93,40 @@ public class TrackerService {
     // ---- Sprints ----
 
     public List<SprintDto> listSprints() {
-        return sprintRepository.findAll().stream()
-                .map(s -> new SprintDto(s.getId(), s.getName(),
-                        s.getStartDate() == null ? null : s.getStartDate().format(DATE),
-                        s.getEndDate() == null ? null : s.getEndDate().format(DATE),
-                        s.getTasks().stream().mapToInt(Task::getEstimatedHours).sum(),
-                        s.getTasks().size()))
-                .collect(Collectors.toList());
+        return sprintRepository.findAll().stream().map(this::toSprintDto).toList();
     }
 
     @Transactional
     public SprintDto createSprint(SprintRequest request) {
-        if (request.name() == null || request.name().isBlank()) {
-            throw badRequest("name is required");
-        }
         Sprint sprint = new Sprint();
-        sprint.setName(request.name());
-        sprint.setStartDate(parseDate(request.startDate()));
-        sprint.setEndDate(parseDate(request.endDate()));
+        applySprint(sprint, request);
+        return toSprintDto(sprintRepository.save(sprint));
+    }
+
+    @Transactional
+    public SprintDto updateSprint(Long id, SprintRequest request) {
+        Sprint sprint = requireSprint(id);
+        applySprint(sprint, request);
         return toSprintDto(sprintRepository.save(sprint));
     }
 
     @Transactional
     public void deleteSprint(Long id) {
         sprintRepository.deleteById(id);
+    }
+
+    private void applySprint(Sprint sprint, SprintRequest request) {
+        if (request.name() == null || request.name().isBlank()) {
+            throw badRequest("name is required");
+        }
+        LocalDate start = parseDate(request.startDate());
+        LocalDate end = parseDate(request.endDate());
+        if (start != null && end != null && end.isBefore(start)) {
+            throw badRequest("endDate must be on or after startDate");
+        }
+        sprint.setName(request.name());
+        sprint.setStartDate(start);
+        sprint.setEndDate(end);
     }
 
     private SprintDto toSprintDto(Sprint s) {
@@ -126,12 +140,13 @@ public class TrackerService {
     // ---- Tasks ----
 
     public List<TaskDto> listTasks() {
-        return taskRepository.findAll().stream().map(this::toTaskDto).collect(Collectors.toList());
+        return taskRepository.findAll().stream().map(this::toTaskDto).toList();
     }
 
     @Transactional
     public TaskDto createTask(TaskRequest request) {
         Task task = new Task();
+        task.setId((String) taskIdGenerator.generate(null, task));
         applyTask(task, request);
         return toTaskDto(taskRepository.save(task));
     }
@@ -186,7 +201,7 @@ public class TrackerService {
         }
         try {
             return LocalDate.parse(value, DATE);
-        } catch (java.time.format.DateTimeParseException e) {
+        } catch (DateTimeParseException e) {
             throw badRequest("invalid date, expected YYYY-MM-DD: " + value);
         }
     }
