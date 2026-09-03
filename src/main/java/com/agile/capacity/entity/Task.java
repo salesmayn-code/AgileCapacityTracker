@@ -1,17 +1,11 @@
 package com.agile.capacity.entity;
 
 import jakarta.persistence.*;
-import org.hibernate.annotations.GenericGenerator;
 
 @Entity
 public class Task {
     @Id
-    @GeneratedValue(generator = "task_id_gen")
-    @GenericGenerator(
-            name = "task_id_gen",
-            type = com.agile.capacity.util.TaskIdGenerator.class // Explicitly specify the class
-    )
-    private String id;
+    private String id; // assigned: "T-<uuid8>" for manual tasks, "GH-<issueNumber>" for synced tasks
 
     private String title;
     private int estimatedHours;

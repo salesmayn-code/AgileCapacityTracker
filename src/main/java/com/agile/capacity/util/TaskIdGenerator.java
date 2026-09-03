@@ -8,6 +8,6 @@ import java.util.UUID;
 public class TaskIdGenerator implements IdentifierGenerator {
     @Override
     public Serializable generate(SharedSessionContractImplementor session, Object object) {
-        return "GH-" + UUID.randomUUID().toString().substring(0, 8); // Example: GH-3f4a7b2
+        return "T-" + UUID.randomUUID().toString().substring(0, 8); // Example: T-3f4a7b2c
     }
 }
