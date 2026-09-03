@@ -1,5 +1,6 @@
 package com.agile.capacity.service;
 
+import com.agile.capacity.dto.Dtos.PageDto;
 import com.agile.capacity.dto.Dtos.SprintDto;
 import com.agile.capacity.dto.Dtos.SprintRequest;
 import com.agile.capacity.dto.Dtos.TaskDto;
@@ -9,10 +10,14 @@ import com.agile.capacity.dto.Dtos.UserRequest;
 import com.agile.capacity.entity.Sprint;
 import com.agile.capacity.entity.Task;
 import com.agile.capacity.entity.User;
+import com.agile.capacity.repository.SprintStats;
 import com.agile.capacity.repository.SprintRepository;
 import com.agile.capacity.repository.TaskRepository;
 import com.agile.capacity.repository.UserRepository;
+import com.agile.capacity.util.PageRequests;
 import com.agile.capacity.util.TaskIdGenerator;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -21,8 +26,12 @@ import org.springframework.web.server.ResponseStatusException;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 @Service
 public class TrackerService {
@@ -44,8 +53,9 @@ public class TrackerService {
 
     // ---- Users ----
 
-    public List<UserDto> listUsers() {
-        return userRepository.findAll().stream().map(this::toUserDto).toList();
+    public PageDto<UserDto> listUsers(Integer page, Integer size) {
+        Page<UserDto> result = userRepository.findAll(PageRequests.of(page, size)).map(this::toUserDto);
+        return toPageDto(result);
     }
 
     public UserDto getUser(Long id) {
@@ -92,22 +102,39 @@ public class TrackerService {
 
     // ---- Sprints ----
 
-    public List<SprintDto> listSprints() {
-        return sprintRepository.findAll().stream().map(this::toSprintDto).toList();
+    public PageDto<SprintDto> listSprints(Integer page, Integer size) {
+        Pageable pageable = PageRequests.of(page, size);
+        Map<Long, SprintStats> stats = sprintRepository.aggregateSprintStats().stream()
+                .collect(Collectors.toMap(SprintStats::getSprintId, Function.identity()));
+        Page<SprintDto> result = sprintRepository.findAll(pageable)
+                .map(s -> toSprintDto(s, stats.getOrDefault(s.getId(), emptyStats(s.getId()))));
+        return toPageDto(result);
+    }
+
+    private SprintStats emptyStats(Long sprintId) {
+        return new SprintStats() {
+            @Override public Long getSprintId() { return sprintId; }
+            @Override public long getTaskCount() { return 0; }
+            @Override public long getTotalHours() { return 0; }
+        };
     }
 
     @Transactional
     public SprintDto createSprint(SprintRequest request) {
         Sprint sprint = new Sprint();
         applySprint(sprint, request);
-        return toSprintDto(sprintRepository.save(sprint));
+        return toSprintDto(sprintRepository.save(sprint), emptyStats(null));
     }
 
     @Transactional
     public SprintDto updateSprint(Long id, SprintRequest request) {
         Sprint sprint = requireSprint(id);
         applySprint(sprint, request);
-        return toSprintDto(sprintRepository.save(sprint));
+        SprintStats stats = sprintRepository.aggregateSprintStats().stream()
+                .filter(s -> id.equals(s.getSprintId()))
+                .findFirst()
+                .orElseGet(() -> emptyStats(id));
+        return toSprintDto(sprintRepository.save(sprint), stats);
     }
 
     @Transactional
@@ -129,18 +156,18 @@ public class TrackerService {
         sprint.setEndDate(end);
     }
 
-    private SprintDto toSprintDto(Sprint s) {
+    private SprintDto toSprintDto(Sprint s, SprintStats stats) {
         return new SprintDto(s.getId(), s.getName(),
                 s.getStartDate() == null ? null : s.getStartDate().format(DATE),
                 s.getEndDate() == null ? null : s.getEndDate().format(DATE),
-                s.getTasks().stream().mapToInt(Task::getEstimatedHours).sum(),
-                s.getTasks().size());
+                (int) stats.getTotalHours(), (int) stats.getTaskCount());
     }
 
     // ---- Tasks ----
 
-    public List<TaskDto> listTasks() {
-        return taskRepository.findAll().stream().map(this::toTaskDto).toList();
+    public PageDto<TaskDto> listTasks(Integer page, Integer size) {
+        Page<TaskDto> result = taskRepository.findAll(PageRequests.of(page, size)).map(this::toTaskDto);
+        return toPageDto(result);
     }
 
     @Transactional
@@ -184,6 +211,11 @@ public class TrackerService {
     }
 
     // ---- helpers ----
+
+    private <T> PageDto<T> toPageDto(Page<T> page) {
+        return new PageDto<>(page.getContent(), page.getNumber(), page.getSize(),
+                page.getTotalElements(), page.getTotalPages(), page.isLast());
+    }
 
     private User requireUser(Long id) {
         return userRepository.findById(id)
