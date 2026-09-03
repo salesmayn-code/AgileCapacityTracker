@@ -6,6 +6,7 @@ import com.agile.capacity.dto.Dtos.UserRequest;
 import com.agile.capacity.service.TrackerService;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
@@ -30,17 +31,20 @@ public class UserController {
     }
 
     @PostMapping
+    @PreAuthorize("hasRole('ADMIN')")
     @ResponseStatus(HttpStatus.CREATED)
     public UserDto create(@Valid @RequestBody UserRequest request) {
         return trackerService.createUser(request);
     }
 
     @PutMapping("/{id}")
+    @PreAuthorize("hasRole('ADMIN')")
     public UserDto update(@PathVariable Long id, @Valid @RequestBody UserRequest request) {
         return trackerService.updateUser(id, request);
     }
 
     @DeleteMapping("/{id}")
+    @PreAuthorize("hasRole('ADMIN')")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void delete(@PathVariable Long id) {
         trackerService.deleteUser(id);
