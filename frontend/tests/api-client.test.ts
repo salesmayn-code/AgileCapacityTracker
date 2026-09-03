@@ -77,13 +77,47 @@ describe("api client", () => {
     )
   })
 
-  it("lists users via GET /api/users", async () => {
-    mockFetch(200, [{ id: 1, username: "alice" }])
+  it("lists users via GET /api/users as a PageDto", async () => {
+    const page = {
+      content: [{ id: 1, username: "alice" }],
+      page: 0,
+      size: 20,
+      totalElements: 1,
+      totalPages: 1,
+      last: true,
+    }
+    mockFetch(200, page)
     const users = await api.listUsers()
-    expect(users).toEqual([{ id: 1, username: "alice" }])
-    const [url, init] = vi.mocked(fetch).mock.calls[0]
+    expect(users).toEqual(page)
+    const [url] = vi.mocked(fetch).mock.calls[0]
     expect(url).toBe("http://localhost:8080/api/users")
-    expect(init?.method ?? "GET").toBe("GET")
+  })
+
+  it("appends page and size query parameters", async () => {
+    mockFetch(200, { content: [], page: 2, size: 5, totalElements: 0, totalPages: 0, last: true })
+    await api.listTasks({ page: 2, size: 5 })
+    const [url] = vi.mocked(fetch).mock.calls[0]
+    expect(url).toBe("http://localhost:8080/api/tasks?page=2&size=5")
+  })
+
+  it("allUsers walks every page until last", async () => {
+    let call = 0
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation(() => {
+        call++
+        const body =
+          call === 1
+            ? { content: [{ id: 1 }], page: 0, size: 2, totalElements: 3, totalPages: 2, last: false }
+            : { content: [{ id: 2 }, { id: 3 }], page: 1, size: 2, totalElements: 3, totalPages: 2, last: true }
+        return Promise.resolve(
+          new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } }),
+        )
+      }),
+    )
+    const all = await api.allUsers()
+    expect(all).toEqual([{ id: 1 }, { id: 2 }, { id: 3 }])
+    expect(fetch).toHaveBeenCalledTimes(2)
   })
 
   it("creates users via POST", async () => {
