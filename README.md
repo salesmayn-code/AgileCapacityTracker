@@ -60,7 +60,29 @@ GitHub Issues
 | PUT | `/api/tasks/{id}` | Update task |
 | DELETE | `/api/tasks/{id}` | Delete task |
 | GET | `/api/capacity/workload` | Per-member workload: `dailyCapacityHours`, `allocatedHours`, `usedHours` |
-| POST | `/api/github/sync/{owner}/{repo}` | Import a repo's open issues as tasks (idempotent: existing tasks updated in place); optional `Authorization: Bearer <token>` header overrides the server's `GITHUB_API_TOKEN` |
+| POST | `/api/github/sync/{owner}/{repo}` | Import a repo's open issues as tasks (idempotent: existing tasks updated in place); optional `X-GitHub-Token` header overrides the server's `GITHUB_API_TOKEN` |
+
+## Authentication
+
+All `/api/**` endpoints (except `POST /api/auth/login`) require a valid **JWT** in `Authorization: Bearer …`. Passwords are stored as **BCrypt** hashes. JWTs are HS256-signed with `JWT_SECRET` and expire after **12 hours**; re-login is required after expiry (no refresh tokens yet).
+
+**Role matrix** (enforced server-side via `@PreAuthorize`):
+
+| Operation | admin | team_lead | developer |
+|---|---|---|---|
+| User management (create/update/delete) | ✅ | ❌ | ❌ |
+| Sprint create/update/delete | ✅ | ✅ | ❌ |
+| Task CRUD | ✅ | ✅ | ✅ |
+| GitHub sync | ✅ | ✅ | ❌ |
+| Reads (users/sprints/tasks/workload) | ✅ | ✅ | ✅ |
+
+Anonymous → **401**; wrong role → **403** — both as the standard JSON error body.
+
+**Accounts are admin-created only** — no self-registration. A bootstrap admin is created/normalized at startup from `ADMIN_EMAIL`/`ADMIN_PASSWORD` (idempotent; skipped when unset).
+
+### Session handling (Next.js BFF proxy)
+
+The browser **never sees the JWT**: the frontend calls same-origin `/api/*` routes, and the Next.js server proxies them to the backend (`app/api/[...path]/route.ts`), attaching the JWT from an **httpOnly, Secure (prod), SameSite=Strict cookie** (`act_session`). Login/logout/me have dedicated BFF routes (`app/api/auth/*`). The backend URL is a **server-side env var** (`BACKEND_URL`) — not exposed to the browser. GitHub PATs flow per-request through the `X-GitHub-Token` header (still browser-localStorage; see limitations).
 
 All error responses share a consistent JSON body (`timestamp`, `status`, `error`, `message`, and `fieldErrors` for validation failures). Duplicate username/email → **409**; invalid input → **400** with per-field details.
 
@@ -88,16 +110,20 @@ The schema is managed by **Flyway** migrations (`src/main/resources/db/migration
 
 ```powershell
 $env:SPRING_DATASOURCE_PASSWORD="your_db_password"
-$env:GITHUB_API_TOKEN="your_github_token"   # optional now — app boots without it; sync needs it or a per-request token
+$env:JWT_SECRET="a-random-string-of-at-least-32-chars"   # required
+$env:ADMIN_EMAIL="admin@example.com"                    # bootstrap admin (recommended)
+$env:ADMIN_PASSWORD="a-strong-password"                 # bootstrap admin (recommended)
+$env:GITHUB_API_TOKEN="your_github_token"               # optional — sync needs it or a per-request token
 # optional overrides:
 # $env:SPRING_DATASOURCE_URL="jdbc:postgresql://localhost:5432/agile_capacity"
 # $env:SPRING_DATASOURCE_USERNAME="postgres"
+# $env:APP_CORS_ALLOWED_ORIGINS="http://localhost:3000"
 ```
 
-**Frontend** (`.env.local` in `frontend/`, or shell):
+**Frontend** (`.env.local` in `frontend/`, or shell — server-side only):
 
 ```
-NEXT_PUBLIC_API_BASE_URL=http://localhost:8080
+BACKEND_URL=http://localhost:8080
 ```
 
 ### Run the backend
@@ -126,8 +152,8 @@ Other scripts: `pnpm lint`, `pnpm test` (vitest), `pnpm build`.
 mvn test
 ```
 
-- Unit tests: `TrackerService` (validation + CRUD), `CapacityService` (workload math), `GitHubService` (token resolution), `TaskIdGenerator` (id format)
-- Integration test (`ApiIntegrationTest`): full CRUD flow over real HTTP — user/sprint/task lifecycle, workload math, cascade deletes, 400/404 error paths
+- Unit tests: `TrackerService` (validation + CRUD), `CapacityService` (workload math), `GitHubService` (token resolution), `TaskIdGenerator` (id format), `JwtService` (issue/parse/reject), `AuthService` (login, 401s, session resolution)
+- Integration test (`ApiIntegrationTest`): real login flow, anonymous 401s, role matrix 401/403, full CRUD over HTTP, workload math, cascade deletes, validation/409 error paths
 
 **Frontend** — Vitest + Testing Library (jsdom):
 
@@ -136,33 +162,29 @@ cd frontend
 pnpm test
 ```
 
-- API client (request shapes, auth header, error propagation)
+- API client (same-origin paths, request shapes, X-GitHub-Token, error propagation, pagination)
 - Settings helpers (localStorage persistence/fallbacks) and capacity-percent derivation
-- Mock auth flow (login, logout, session persistence, invalid credentials)
+- Auth provider (BFF login/logout/session-restore/rejection through the real flow)
+- BFF route handlers (cookie set/clear, JWT forwarding, upstream error passthrough)
 
 **CI** — GitHub Actions runs backend `mvn verify` and frontend lint + test + build on every push/PR to `main` (`.github/workflows/ci.yml`). No secrets required: backend tests use H2, frontend tests mock `fetch`.
 
 ### Sign in
 
-Authentication is a client-side mock (any API endpoint is open without it). Demo accounts — password is `password` for all:
-
-| Email | Role |
-|-------|------|
-| `admin@example.com` | admin |
-| `lead@example.com` | team lead |
-| `dev@example.com` | developer |
+Use the bootstrap admin account you configured (`ADMIN_EMAIL`/`ADMIN_PASSWORD`); further accounts are created on the Team Management page (admin only).
 
 ## Configuration & capacity math
 
 - **Working hours per day** — set on the Settings page (persisted in the browser). Capacity % = `usedHours / (10 × hours/day)`.
 - **Allocated hours** — the backend computes `dailyCapacityHours × 10` (10 = assumed sprint length; see limitations).
-- **GitHub token** — entered on the GitHub page and kept in the browser's `localStorage`; sent per request as a `Bearer` header. The backend never stores it.
+- **GitHub token** — entered on the GitHub page and kept in the browser's `localStorage`; sent per request via the `X-GitHub-Token` header (through the BFF). The backend never stores it.
 
 ## Known limitations
 
-- **Authentication is mock** — the login page checks hardcoded demo users; API endpoints require no credentials.
 - **Sprint length is hardcoded to 10 days** — in the backend (`CapacityService`) and in three frontend components; sprint start/end dates are stored but ignored by the math.
 - **Imported GitHub issues carry no hour estimates** — they import with 0h; set estimates per task (preserved on re-sync).
+- **GitHub PAT lives in browser localStorage** — readable by scripts on the page (XSS surface). The session JWT is httpOnly-cookie-protected, but the GitHub PAT trade-off remains.
+- **No refresh tokens** — 12h JWT expiry; users re-login daily.
 
 ## Project structure
 
