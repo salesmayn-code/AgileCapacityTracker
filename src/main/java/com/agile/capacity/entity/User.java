@@ -27,6 +27,9 @@ public class User {
     @Column(name = "github_username")
     private String githubUsername;
 
+    @Column(name = "password_hash", nullable = false)
+    private String passwordHash;
+
     @Column(name = "daily_capacity_hours")
     private int dailyCapacityHours;
 
@@ -52,6 +55,8 @@ public class User {
     public void setRole(String role) { this.role = role; }
     public String getGithubUsername() { return githubUsername; }
     public void setGithubUsername(String githubUsername) { this.githubUsername = githubUsername; }
+    public String getPasswordHash() { return passwordHash; }
+    public void setPasswordHash(String passwordHash) { this.passwordHash = passwordHash; }
     public int getDailyCapacityHours() { return dailyCapacityHours; }
     public void setDailyCapacityHours(int dailyCapacityHours) { this.dailyCapacityHours = dailyCapacityHours; }
     public List<Task> getTasks() { return tasks; }
