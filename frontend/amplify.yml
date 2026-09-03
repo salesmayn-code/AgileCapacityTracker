@@ -1,0 +1,22 @@
+# Amplify Hosting build spec (Phase 10). App root directory is frontend/, so
+# paths are relative to it. Node 22 + pnpm match CI and the Dockerfile.
+version: 1
+frontend:
+  phases:
+    preBuild:
+      commands:
+        - nvm use 22 || true
+        - corepack enable
+        - corepack prepare pnpm@11.22.0 --activate
+        - pnpm install --frozen-lockfile
+    build:
+      commands:
+        - pnpm build
+  artifacts:
+    baseDirectory: .next
+    files:
+      - "**/*"
+  cache:
+    paths:
+      - node_modules/**/*
+      - .next/cache/**/*

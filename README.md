@@ -103,8 +103,8 @@ The schema is managed by **Flyway** migrations (`src/main/resources/db/migration
 ### Prerequisites
 
 - Java 17+ and Maven (backend)
-- Node.js 22+ and pnpm 11 (frontend)
-- PostgreSQL 15+ running locally
+- Node.js 22+ and pnpm 11.22 (frontend)
+- PostgreSQL 15+ running locally — or just Docker (`docker compose up`)
 
 ### Environment variables
 
@@ -216,6 +216,20 @@ All capacity math is computed **server-side** (single source of truth); the fron
 ```
 
 ## Deployment
+
+### Local full-stack (Docker parity)
+
+```bash
+docker compose up --build     # postgres + backend (8080) + frontend (3000)
+```
+
+The compose stack runs the **same images** the AWS deployment uses (repo-root `Dockerfile` for the Spring backend — multi-stage, layered jar, non-root; `frontend/Dockerfile` for the standalone Next.js server). Bootstrap admin in compose: `admin@local.test` / `compose-admin-pass-123` (compose-only). The Postgres volume is internal (not published to the host).
+
+### AWS (App Runner + Amplify + RDS)
+
+Production target: **App Runner** (backend, ECR-based) + **Amplify Hosting** (frontend, repo-connected) + **RDS PostgreSQL** (private subnet). CI/CD is GitHub Actions with **OIDC** — no static AWS keys. Full runbook with console steps, CDK equivalents, secrets layout, rollback, and cost baseline: **`docs/deployment-aws.md`** (kept in the internal docs set; the public summary is this section).
+
+Deploy pipeline (`.github/workflows/deploy.yml`): builds the backend image → pushes to ECR `agile-tracker-backend` → triggers `apprunner update-service` → waits for healthy. It **self-skips until three repo variables exist** (`AWS_REGION`, `AWS_ACCOUNT_ID`, `APPRUNNER_SERVICE_ARN`) — adding them is what arms deploys. The frontend auto-deploys via Amplify on push to `main` with `BACKEND_URL` pointing at the App Runner URL.
 
 Historical demo: https://scad-agile-capacitytracker.vercel.app/
 

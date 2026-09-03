@@ -1,8 +1,6 @@
-allowBuilds:
-  esbuild: true
-  sharp: true
-  unrs-resolver: true
-onlyBuiltDependencies:
-  - esbuild
-  - sharp
-  - unrs-resolver
+# pnpm 11+ settings (moved out of package.json "pnpm" field in pnpm 11).
+# pnpm 10+ blocks package postinstall scripts by default; pnpm 11 turns the
+# warning into a hard error (ERR_PNPM_IGNORED_BUILDS) breaking Docker builds.
+# These are well-known native deps (esbuild/sharp/unrs-resolver); their
+# postinstalls fetch/prepare native binaries - safe and required for Next.js.
+dangerouslyAllowAllBuilds: true

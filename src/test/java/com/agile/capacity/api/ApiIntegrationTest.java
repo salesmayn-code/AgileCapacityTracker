@@ -124,6 +124,23 @@ class ApiIntegrationTest {
 
     @Test
     @Order(1)
+    void actuatorHealthIsPublicForProbes() {
+        // Container/App Runner health checks hit these without a token (Phase 10)
+        ResponseEntity<String> health = rest.getForEntity("/actuator/health", String.class);
+        assertThat(health.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(health.getBody()).contains("\"status\":\"UP\"");
+        assertThat(rest.getForEntity("/actuator/health/liveness", String.class).getStatusCode())
+                .isEqualTo(HttpStatus.OK);
+        assertThat(rest.getForEntity("/actuator/health/readiness", String.class).getStatusCode())
+                .isEqualTo(HttpStatus.OK);
+        // info is exposed but env/metrics are not (404 when not exposed)
+        assertThat(rest.getForEntity("/actuator/info", String.class).getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(rest.getForEntity("/actuator/env", String.class).getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(rest.getForEntity("/actuator/metrics", String.class).getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+    }
+
+    @Test
+    @Order(2)
     void wrongPasswordReturns401WithJsonError() {
         ResponseEntity<String> response = rest.postForEntity("/api/auth/login",
                 new HttpEntity<>(Map.of("email", ADMIN_EMAIL, "password", "wrong"), json()), String.class);
@@ -134,7 +151,7 @@ class ApiIntegrationTest {
     }
 
     @Test
-    @Order(2)
+    @Order(3)
     void anonymousRequestsAreRejectedWith401() {
         assertThat(rest.getForEntity("/api/users", String.class).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
         assertThat(rest.getForEntity("/api/sprints", String.class).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
@@ -159,7 +176,7 @@ class ApiIntegrationTest {
     }
 
     @Test
-    @Order(3)
+    @Order(4)
     void roleMatrixEnforced() {
         String admin = login(ADMIN_EMAIL, ADMIN_PASSWORD);
         Number leadId = createUser(admin, "lead-user", "lead@test.local", "team_lead", "lead-pass-123");
@@ -218,7 +235,7 @@ class ApiIntegrationTest {
     // ---- CRUD flows (as admin) ----
 
     @Test
-    @Order(4)
+    @Order(5)
     void userCrudFlowAsAdmin() {
         String admin = login(ADMIN_EMAIL, ADMIN_PASSWORD);
 
@@ -240,7 +257,7 @@ class ApiIntegrationTest {
     }
 
     @Test
-    @Order(5)
+    @Order(6)
     void paginatedListsAsAdmin() {
         String admin = login(ADMIN_EMAIL, ADMIN_PASSWORD);
 
@@ -261,7 +278,7 @@ class ApiIntegrationTest {
     }
 
     @Test
-    @Order(6)
+    @Order(7)
     void sprintTaskFlowWorkloadAndCascade() {
         String admin = login(ADMIN_EMAIL, ADMIN_PASSWORD);
         Number userId = createUser(admin, "bob", "bob@test.local", "developer", "bob-pass-1234");
@@ -300,7 +317,7 @@ class ApiIntegrationTest {
     }
 
     @Test
-    @Order(7)
+    @Order(8)
     void workloadV2ComputesCapacityServerSide() {
         String admin = login(ADMIN_EMAIL, ADMIN_PASSWORD);
         Number userId = createUser(admin, "wanda", "wanda@test.local", "developer", "wanda-pass-12");
@@ -342,7 +359,7 @@ class ApiIntegrationTest {
     }
 
     @Test
-    @Order(8)
+    @Order(9)
     void workloadFallsBackWhenNoActiveSprint() {
         String admin = login(ADMIN_EMAIL, ADMIN_PASSWORD);
         Map<String, Object> envelope = body(get("/api/capacity/workload", admin));
@@ -353,7 +370,7 @@ class ApiIntegrationTest {
     }
 
     @Test
-    @Order(9)
+    @Order(10)
     void teamSettingsAuthMatrixAndFlow() {
         String admin = login(ADMIN_EMAIL, ADMIN_PASSWORD);
         Number devId = createUser(admin, "dev-settings", "dev-settings@test.local", "developer", "dev-pass-1234");
@@ -387,7 +404,7 @@ class ApiIntegrationTest {
     }
 
     @Test
-    @Order(10)
+    @Order(11)
     void validationAndDuplicateErrors() {
         String admin = login(ADMIN_EMAIL, ADMIN_PASSWORD);
 
@@ -432,7 +449,7 @@ class ApiIntegrationTest {
     }
 
     @Test
-    @Order(11)
+    @Order(12)
     void syncRouteStillReachableOffline() {
         String admin = login(ADMIN_EMAIL, ADMIN_PASSWORD);
         // No token configured/provided -> service fails fast with 400 before any GitHub call

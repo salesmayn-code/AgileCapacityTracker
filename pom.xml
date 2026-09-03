@@ -76,6 +76,12 @@
             <artifactId>flyway-core</artifactId>
         </dependency>
 
+        <!-- Actuator: health/info/metrics endpoints for container and App Runner health checks -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+
         <!-- GitHub API -->
         <dependency>
             <groupId>org.kohsuke</groupId>

@@ -1,0 +1,67 @@
+# Full-stack local parity (Phase 10): the same images CI builds and App Runner runs.
+#   docker compose up --build
+# Frontend: http://localhost:3000  |  Backend: http://localhost:8080
+#
+# The Postgres data is internal-only (no published host port) to avoid colliding
+# with any local Postgres; expose it explicitly if you need psql from the host:
+#   ports: ["5433:5432"]
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: agile_capacity
+      POSTGRES_USER: tracker
+      POSTGRES_PASSWORD: tracker-local
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tracker -d agile_capacity"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    networks:
+      - tracker-net
+
+  backend:
+    build: .
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/agile_capacity
+      SPRING_DATASOURCE_USERNAME: tracker
+      SPRING_DATASOURCE_PASSWORD: tracker-local
+      JWT_SECRET: local-compose-secret-0123456789abcdef-0123
+      ADMIN_EMAIL: admin@local.test
+      ADMIN_PASSWORD: compose-admin-pass-123
+      APP_CORS_ALLOWED_ORIGINS: http://localhost:3000
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/actuator/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+    networks:
+      - tracker-net
+
+  frontend:
+    build: ./frontend
+    environment:
+      BACKEND_URL: http://backend:8080
+      # Plain-http local parity: the session cookie stays Secure on real deployments
+      COOKIE_SECURE: "false"
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "3000:3000"
+    networks:
+      - tracker-net
+
+volumes:
+  pgdata:
+
+networks:
+  tracker-net:

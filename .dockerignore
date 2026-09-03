@@ -1,0 +1,9 @@
+target/
+.idea/
+.git/
+docs/
+*.md
+.env*
+frontend/
+backend/
+github-keys/
