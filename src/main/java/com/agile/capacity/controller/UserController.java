@@ -4,6 +4,7 @@ import com.agile.capacity.dto.Dtos.UserDto;
 import com.agile.capacity.dto.Dtos.UserRequest;
 import com.agile.capacity.service.TrackerService;
 import org.springframework.http.HttpStatus;
+import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -29,12 +30,12 @@ public class UserController {
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    public UserDto create(@RequestBody UserRequest request) {
+    public UserDto create(@Valid @RequestBody UserRequest request) {
         return trackerService.createUser(request);
     }
 
     @PutMapping("/{id}")
-    public UserDto update(@PathVariable Long id, @RequestBody UserRequest request) {
+    public UserDto update(@PathVariable Long id, @Valid @RequestBody UserRequest request) {
         return trackerService.updateUser(id, request);
     }
 

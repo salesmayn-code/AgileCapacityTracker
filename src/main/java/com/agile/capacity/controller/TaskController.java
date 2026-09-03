@@ -4,6 +4,7 @@ import com.agile.capacity.dto.Dtos.TaskDto;
 import com.agile.capacity.dto.Dtos.TaskRequest;
 import com.agile.capacity.service.TrackerService;
 import org.springframework.http.HttpStatus;
+import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -24,12 +25,12 @@ public class TaskController {
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    public TaskDto create(@RequestBody TaskRequest request) {
+    public TaskDto create(@Valid @RequestBody TaskRequest request) {
         return trackerService.createTask(request);
     }
 
     @PutMapping("/{id}")
-    public TaskDto update(@PathVariable String id, @RequestBody TaskRequest request) {
+    public TaskDto update(@PathVariable String id, @Valid @RequestBody TaskRequest request) {
         return trackerService.updateTask(id, request);
     }
 
