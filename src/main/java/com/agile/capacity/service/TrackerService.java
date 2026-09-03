@@ -19,6 +19,7 @@ import com.agile.capacity.util.TaskIdGenerator;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
@@ -42,13 +43,16 @@ public class TrackerService {
     private final SprintRepository sprintRepository;
     private final TaskRepository taskRepository;
     private final TaskIdGenerator taskIdGenerator;
+    private final PasswordEncoder passwordEncoder;
 
     public TrackerService(UserRepository userRepository, SprintRepository sprintRepository,
-                          TaskRepository taskRepository, TaskIdGenerator taskIdGenerator) {
+                          TaskRepository taskRepository, TaskIdGenerator taskIdGenerator,
+                          PasswordEncoder passwordEncoder) {
         this.userRepository = userRepository;
         this.sprintRepository = sprintRepository;
         this.taskRepository = taskRepository;
         this.taskIdGenerator = taskIdGenerator;
+        this.passwordEncoder = passwordEncoder;
     }
 
     // ---- Users ----
@@ -64,6 +68,9 @@ public class TrackerService {
 
     @Transactional
     public UserDto createUser(UserRequest request) {
+        if (request.password() == null || request.password().isBlank()) {
+            throw badRequest("password is required when creating a user");
+        }
         User user = new User();
         applyUser(user, request);
         return toUserDto(userRepository.save(user));
@@ -93,6 +100,9 @@ public class TrackerService {
         user.setRole(request.role());
         user.setGithubUsername(request.githubUsername());
         user.setDailyCapacityHours(request.dailyCapacityHours());
+        if (request.password() != null && !request.password().isBlank()) {
+            user.setPasswordHash(passwordEncoder.encode(request.password()));
+        }
     }
 
     private UserDto toUserDto(User user) {
