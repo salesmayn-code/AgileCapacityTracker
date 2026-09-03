@@ -40,6 +40,7 @@ interface MemberForm {
   email: string
   role: Role
   githubUsername: string
+  password: string
   dailyCapacityHours: number
 }
 
@@ -48,6 +49,7 @@ const EMPTY_FORM: MemberForm = {
   email: "",
   role: "developer",
   githubUsername: "",
+  password: "",
   dailyCapacityHours: 8,
 }
 
@@ -91,6 +93,7 @@ export default function TeamPage() {
       email: member.email ?? "",
       role: member.role,
       githubUsername: member.githubUsername ?? "",
+      password: "",
       dailyCapacityHours: member.dailyCapacityHours,
     })
     setIsAddDialogOpen(true)
@@ -106,10 +109,17 @@ export default function TeamPage() {
         dailyCapacityHours: form.dailyCapacityHours,
       }
       if (editing) {
-        await api.updateUser(editing.id, body)
+        await api.updateUser(editing.id, {
+          ...body,
+          password: form.password || undefined, // optional on update
+        })
         toast({ title: "Team member updated", description: `${form.username} has been updated.` })
       } else {
-        await api.createUser(body)
+        await api.createUser({
+          ...body,
+          email: form.email,
+          password: form.password,
+        })
         toast({ title: "Team member added", description: `${form.username} has been added to the team.` })
       }
       setIsAddDialogOpen(false)
@@ -234,12 +244,28 @@ export default function TeamPage() {
                   className="col-span-3"
                 />
               </div>
+              <div className="grid grid-cols-4 items-center gap-4">
+                <Label htmlFor="password" className="text-right">
+                  {editing ? "New Password" : "Password"}
+                </Label>
+                <Input
+                  id="password"
+                  type="password"
+                  placeholder={editing ? "Leave blank to keep current" : "Min 8 characters"}
+                  value={form.password}
+                  onChange={(e) => setForm({ ...form, password: e.target.value })}
+                  className="col-span-3"
+                />
+              </div>
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setIsAddDialogOpen(false)}>
                 Cancel
               </Button>
-              <Button onClick={handleSubmit} disabled={!form.username.trim()}>
+              <Button
+                onClick={handleSubmit}
+                disabled={!form.username.trim() || !editing && (!form.email.trim() || form.password.length < 8)}
+              >
                 {editing ? "Save Changes" : "Add Member"}
               </Button>
             </DialogFooter>

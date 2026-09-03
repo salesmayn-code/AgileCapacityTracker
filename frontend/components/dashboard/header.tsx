@@ -20,7 +20,7 @@ export function Header() {
   return (
     <header className="h-16 border-b flex items-center justify-between px-4 md:px-6">
       <div>
-        <h1 className="text-lg font-semibold">Welcome, {user?.name}</h1>
+        <h1 className="text-lg font-semibold">Welcome, {user?.username}</h1>
       </div>
       <div className="flex items-center space-x-2">
         <Button variant="ghost" size="icon">
