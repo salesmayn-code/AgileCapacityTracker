@@ -14,12 +14,11 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog"
 import { Badge } from "@/components/ui/badge"
 import { Calendar, Pencil, Plus, Trash2 } from "lucide-react"
-import { format } from "date-fns"
 import { useToast } from "@/components/ui/use-toast"
+import { NewSprintDialog } from "@/components/new-sprint-dialog"
 
 function sprintStatus(sprint: SprintDto): "Completed" | "In Progress" | "Planned" {
   if (!sprint.startDate || !sprint.endDate) return "Planned"
@@ -43,11 +42,6 @@ export default function SprintsPage() {
   const [loading, setLoading] = useState(true)
   const [isAddSprintOpen, setIsAddSprintOpen] = useState(false)
   const [editing, setEditing] = useState<SprintDto | null>(null)
-  const [newSprint, setNewSprint] = useState({
-    name: "",
-    startDate: new Date(),
-    endDate: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000),
-  })
   const [editSprint, setEditSprint] = useState({ name: "", startDate: "", endDate: "" })
 
   const load = useCallback(async () => {
@@ -68,26 +62,6 @@ export default function SprintsPage() {
   useEffect(() => {
     void load()
   }, [load])
-
-  const handleCreate = async () => {
-    try {
-      await api.createSprint({
-        name: newSprint.name,
-        startDate: format(newSprint.startDate, "yyyy-MM-dd"),
-        endDate: format(newSprint.endDate, "yyyy-MM-dd"),
-      })
-      toast({ title: "Sprint created", description: `${newSprint.name} has been created.` })
-      setIsAddSprintOpen(false)
-      setNewSprint({ name: "", startDate: new Date(), endDate: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000) })
-      await load()
-    } catch (error) {
-      toast({
-        title: "Failed to create sprint",
-        description: error instanceof Error ? error.message : "Unknown error",
-        variant: "destructive",
-      })
-    }
-  }
 
   const handleDelete = async (id: number) => {
     try {
@@ -142,66 +116,13 @@ export default function SprintsPage() {
           <h2 className="text-3xl font-bold tracking-tight">Sprint Planning</h2>
           <p className="text-muted-foreground">Manage your sprints and track progress</p>
         </div>
-        <Dialog open={isAddSprintOpen} onOpenChange={setIsAddSprintOpen}>
-          <DialogTrigger asChild>
-            <Button>
-              <Plus className="mr-2 h-4 w-4" />
-              New Sprint
-            </Button>
-          </DialogTrigger>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Create New Sprint</DialogTitle>
-              <DialogDescription>Set up a new sprint for your team.</DialogDescription>
-            </DialogHeader>
-            <div className="grid gap-4 py-4">
-              <div className="grid grid-cols-4 items-center gap-4">
-                <Label htmlFor="name" className="text-right">
-                  Sprint Name
-                </Label>
-                <Input
-                  id="name"
-                  value={newSprint.name}
-                  onChange={(e) => setNewSprint({ ...newSprint, name: e.target.value })}
-                  className="col-span-3"
-                />
-              </div>
-              <div className="grid grid-cols-4 items-center gap-4">
-                <Label htmlFor="startDate" className="text-right">
-                  Start Date
-                </Label>
-                <Input
-                  id="startDate"
-                  type="date"
-                  value={format(newSprint.startDate, "yyyy-MM-dd")}
-                  onChange={(e) => setNewSprint({ ...newSprint, startDate: new Date(e.target.value) })}
-                  className="col-span-3"
-                />
-              </div>
-              <div className="grid grid-cols-4 items-center gap-4">
-                <Label htmlFor="endDate" className="text-right">
-                  End Date
-                </Label>
-                <Input
-                  id="endDate"
-                  type="date"
-                  value={format(newSprint.endDate, "yyyy-MM-dd")}
-                  onChange={(e) => setNewSprint({ ...newSprint, endDate: new Date(e.target.value) })}
-                  className="col-span-3"
-                />
-              </div>
-            </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setIsAddSprintOpen(false)}>
-                Cancel
-              </Button>
-              <Button onClick={handleCreate} disabled={!newSprint.name.trim()}>
-                Create Sprint
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+        <Button onClick={() => setIsAddSprintOpen(true)}>
+          <Plus className="mr-2 h-4 w-4" />
+          New Sprint
+        </Button>
       </div>
+
+      <NewSprintDialog open={isAddSprintOpen} onOpenChange={setIsAddSprintOpen} onCreated={load} />
 
       <Dialog open={editing !== null} onOpenChange={(open) => !open && setEditing(null)}>
         <DialogContent>

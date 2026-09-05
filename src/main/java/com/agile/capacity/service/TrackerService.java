@@ -6,6 +6,7 @@ import com.agile.capacity.dto.Dtos.SprintRequest;
 import com.agile.capacity.dto.Dtos.TaskDto;
 import com.agile.capacity.dto.Dtos.TaskRequest;
 import com.agile.capacity.dto.Dtos.TeamSettingsDto;
+import com.agile.capacity.dto.Dtos.TeamSettingsFullDto;
 import com.agile.capacity.dto.Dtos.TeamSettingsRequest;
 import com.agile.capacity.dto.Dtos.UserDto;
 import com.agile.capacity.dto.Dtos.UserRequest;
@@ -228,35 +229,61 @@ public class TrackerService {
 
     // ---- Team settings ----
 
-    public TeamSettingsDto getTeamSettings() {
-        return new TeamSettingsDto(getWorkingHoursPerDay());
+    public TeamSettingsFullDto getTeamSettings() {
+        TeamSettings settings = teamSettingsRepository.findById(TeamSettingsRepository.SINGLETON_ID)
+                .orElseGet(this::defaultSettings);
+        return toFullDto(settings);
     }
 
-    @Transactional
-    public TeamSettingsDto updateTeamSettings(TeamSettingsRequest request) {
-        int hours = request.workingHoursPerDay();
-        if (hours < 1 || hours > 24) {
-            throw badRequest("workingHoursPerDay must be between 1 and 24");
-        }
-        TeamSettings settings = requireTeamSettings();
-        settings.setWorkingHoursPerDay(hours);
-        return new TeamSettingsDto(teamSettingsRepository.save(settings).getWorkingHoursPerDay());
-    }
-
-    private int getWorkingHoursPerDay() {
+    /** Hours only — used by CapacityService for workload math. */
+    public int getWorkingHoursPerDay() {
         return teamSettingsRepository.findById(TeamSettingsRepository.SINGLETON_ID)
                 .map(TeamSettings::getWorkingHoursPerDay)
                 .orElse(8);
     }
 
-    private TeamSettings requireTeamSettings() {
-        return teamSettingsRepository.findById(TeamSettingsRepository.SINGLETON_ID)
+    @Transactional
+    public TeamSettingsFullDto updateTeamSettings(TeamSettingsRequest request) {
+        int hours = request.workingHoursPerDay();
+        if (hours < 1 || hours > 24) {
+            throw badRequest("workingHoursPerDay must be between 1 and 24");
+        }
+        if (request.syncFrequency() != null
+                && !Set.of("manual", "hourly", "daily").contains(request.syncFrequency())) {
+            throw badRequest("syncFrequency must be one of manual, hourly, daily");
+        }
+        TeamSettings settings = teamSettingsRepository.findById(TeamSettingsRepository.SINGLETON_ID)
                 .orElseGet(() -> {
-                    TeamSettings created = new TeamSettings();
-                    created.setId(TeamSettingsRepository.SINGLETON_ID);
+                    TeamSettings created = defaultSettings();
                     created.setWorkingHoursPerDay(8);
-                    return teamSettingsRepository.save(created);
+                    return created;
                 });
+        settings.setWorkingHoursPerDay(hours);
+        if (request.syncFrequency() != null) {
+            settings.setSyncFrequency(request.syncFrequency());
+        }
+        if (request.capacityAlertsEnabled() != null) {
+            settings.setCapacityAlertsEnabled(request.capacityAlertsEnabled());
+        }
+        if (request.underallocationAlertsEnabled() != null) {
+            settings.setUnderallocationAlertsEnabled(request.underallocationAlertsEnabled());
+        }
+        return toFullDto(teamSettingsRepository.save(settings));
+    }
+
+    private TeamSettings defaultSettings() {
+        TeamSettings settings = new TeamSettings();
+        settings.setId(TeamSettingsRepository.SINGLETON_ID);
+        settings.setWorkingHoursPerDay(8);
+        settings.setSyncFrequency("manual");
+        settings.setCapacityAlertsEnabled(true);
+        settings.setUnderallocationAlertsEnabled(true);
+        return settings;
+    }
+
+    private TeamSettingsFullDto toFullDto(TeamSettings settings) {
+        return new TeamSettingsFullDto(settings.getWorkingHoursPerDay(), settings.getSyncFrequency(),
+                settings.isCapacityAlertsEnabled(), settings.isUnderallocationAlertsEnabled());
     }
 
     // ---- helpers ----

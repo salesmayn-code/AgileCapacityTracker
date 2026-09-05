@@ -3,10 +3,9 @@ package com.agile.capacity.service;
 import com.agile.capacity.dto.Dtos.WorkloadDto;
 import com.agile.capacity.dto.Dtos.WorkloadResponseDto;
 import com.agile.capacity.entity.Sprint;
-import com.agile.capacity.entity.TeamSettings;
+import com.agile.capacity.entity.User;
 import com.agile.capacity.repository.SprintRepository;
 import com.agile.capacity.repository.TaskRepository;
-import com.agile.capacity.repository.TeamSettingsRepository;
 import com.agile.capacity.repository.UserRepository;
 import com.agile.capacity.repository.UserStats;
 import com.agile.capacity.util.SprintLengthCalculator;
@@ -24,14 +23,14 @@ public class CapacityService {
     private final UserRepository userRepository;
     private final TaskRepository taskRepository;
     private final SprintRepository sprintRepository;
-    private final TeamSettingsRepository teamSettingsRepository;
+    private final TrackerService trackerService;
 
     public CapacityService(UserRepository userRepository, TaskRepository taskRepository,
-                           SprintRepository sprintRepository, TeamSettingsRepository teamSettingsRepository) {
+                           SprintRepository sprintRepository, TrackerService trackerService) {
         this.userRepository = userRepository;
         this.taskRepository = taskRepository;
         this.sprintRepository = sprintRepository;
-        this.teamSettingsRepository = teamSettingsRepository;
+        this.trackerService = trackerService;
     }
 
     /**
@@ -84,9 +83,7 @@ public class CapacityService {
     }
 
     private int getWorkingHoursPerDay() {
-        return teamSettingsRepository.findById(TeamSettingsRepository.SINGLETON_ID)
-                .map(TeamSettings::getWorkingHoursPerDay)
-                .orElse(8);
+        return trackerService.getWorkingHoursPerDay();
     }
 
     private static int percent(int value, int denominator) {

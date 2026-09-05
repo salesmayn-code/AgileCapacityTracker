@@ -109,4 +109,82 @@ describe("BFF auth routes", () => {
       )
     })
   })
+
+  describe("PUT /api/auth/me (Phase 11 profile update)", () => {
+    it("proxies the profile update with the session JWT and body", async () => {
+      const fetchMock = mockUpstream(200, { id: 1, username: "renamed" })
+      vi.stubGlobal("fetch", fetchMock)
+      const { PUT } = await importRoute("../app/api/auth/me/route")
+      const request = new NextRequest("http://localhost:3000/api/auth/me", {
+        method: "PUT",
+        headers: { cookie: `${SESSION_COOKIE}=the-jwt`, "content-type": "application/json" },
+        body: JSON.stringify({ username: "renamed" }),
+      })
+      const response = await PUT(request)
+      expect(response.status).toBe(200)
+      expect(fetchMock).toHaveBeenCalledWith(
+        "http://localhost:8080/api/auth/me",
+        expect.objectContaining({
+          method: "PUT",
+          headers: { Authorization: "Bearer the-jwt", "Content-Type": "application/json" },
+          body: JSON.stringify({ username: "renamed" }),
+        }),
+      )
+    })
+
+    it("returns 401 without a cookie", async () => {
+      const { PUT } = await importRoute("../app/api/auth/me/route")
+      const request = new NextRequest("http://localhost:3000/api/auth/me", {
+        method: "PUT",
+        body: JSON.stringify({ username: "x" }),
+      })
+      const response = await PUT(request)
+      expect(response.status).toBe(401)
+    })
+  })
+
+  describe("POST /api/auth/password (Phase 11 password change)", () => {
+    it("proxies the password change and maps success to 204", async () => {
+      const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 204 }))
+      vi.stubGlobal("fetch", fetchMock)
+      const { POST } = await importRoute("../app/api/auth/password/route")
+      const request = new NextRequest("http://localhost:3000/api/auth/password", {
+        method: "POST",
+        headers: { cookie: `${SESSION_COOKIE}=the-jwt`, "content-type": "application/json" },
+        body: JSON.stringify({ currentPassword: "old", newPassword: "new-pass-1" }),
+      })
+      const response = await POST(request)
+      expect(response.status).toBe(204)
+      expect(fetchMock).toHaveBeenCalledWith(
+        "http://localhost:8080/api/auth/password",
+        expect.objectContaining({
+          method: "POST",
+          headers: { Authorization: "Bearer the-jwt", "Content-Type": "application/json" },
+          body: JSON.stringify({ currentPassword: "old", newPassword: "new-pass-1" }),
+        }),
+      )
+    })
+
+    it("passes upstream 401s (wrong current password) through", async () => {
+      vi.stubGlobal("fetch", mockUpstream(401, { status: 401, message: "Current password is incorrect" }))
+      const { POST } = await importRoute("../app/api/auth/password/route")
+      const request = new NextRequest("http://localhost:3000/api/auth/password", {
+        method: "POST",
+        headers: { cookie: `${SESSION_COOKIE}=the-jwt` },
+        body: JSON.stringify({ currentPassword: "bad", newPassword: "new-pass-1" }),
+      })
+      const response = await POST(request)
+      expect(response.status).toBe(401)
+    })
+
+    it("returns 401 without a cookie", async () => {
+      const { POST } = await importRoute("../app/api/auth/password/route")
+      const request = new NextRequest("http://localhost:3000/api/auth/password", {
+        method: "POST",
+        body: JSON.stringify({ currentPassword: "x", newPassword: "y" }),
+      })
+      const response = await POST(request)
+      expect(response.status).toBe(401)
+    })
+  })
 })

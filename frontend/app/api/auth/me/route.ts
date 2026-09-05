@@ -24,3 +24,21 @@ export async function GET(request: NextRequest) {
 
   return NextResponse.json(await upstream.json())
 }
+
+/** PUT /api/auth/me — Phase 11 self-service profile update (username, github, capacity). */
+export async function PUT(request: NextRequest) {
+  const backendUrl = process.env.BACKEND_URL || "http://localhost:8080"
+  const token = request.cookies.get(SESSION_COOKIE)?.value
+
+  if (!token) {
+    return NextResponse.json({ message: "Not authenticated" }, { status: 401 })
+  }
+
+  const upstream = await fetch(`${backendUrl}/api/auth/me`, {
+    method: "PUT",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: await request.text(),
+  })
+
+  return NextResponse.json(await upstream.json().catch(() => ({})), { status: upstream.status })
+}

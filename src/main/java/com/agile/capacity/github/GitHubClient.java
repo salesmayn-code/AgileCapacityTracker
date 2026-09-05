@@ -17,6 +17,11 @@ public interface GitHubClient {
 
     Iterable<GHIssue> listOpenIssues(GHRepository repo) throws IOException;
 
+    /** All issues (open + closed) — Phase 11 sync depth: closed issues mark tasks done. */
+    default Iterable<GHIssue> listAllIssues(GHRepository repo) throws IOException {
+        return repo.getIssues(GHIssueState.ALL);
+    }
+
     static GitHubClient defaultClient() {
         return new GitHubClient() {
             @Override
@@ -28,6 +33,11 @@ public interface GitHubClient {
             @Override
             public Iterable<GHIssue> listOpenIssues(GHRepository repo) throws IOException {
                 return repo.getIssues(GHIssueState.OPEN);
+            }
+
+            @Override
+            public Iterable<GHIssue> listAllIssues(GHRepository repo) throws IOException {
+                return repo.getIssues(GHIssueState.ALL);
             }
         };
     }

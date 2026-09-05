@@ -63,10 +63,48 @@ public final class Dtos {
 
     public record TeamSettingsDto(int workingHoursPerDay) {}
 
+    /** Phase 11 full settings view: hours + sync frequency + alert toggles. */
+    public record TeamSettingsFullDto(int workingHoursPerDay, String syncFrequency,
+                                      boolean capacityAlertsEnabled, boolean underallocationAlertsEnabled) {}
+
     public record TeamSettingsRequest(
             @NotNull(message = "workingHoursPerDay is required")
             @Min(value = 1, message = "workingHoursPerDay must be at least 1")
-            @Max(value = 24, message = "workingHoursPerDay must be at most 24") Integer workingHoursPerDay) {}
+            @Max(value = 24, message = "workingHoursPerDay must be at most 24") Integer workingHoursPerDay,
+            @Pattern(regexp = "manual|hourly|daily", message = "syncFrequency must be one of manual, hourly, daily")
+            String syncFrequency,
+            Boolean capacityAlertsEnabled,
+            Boolean underallocationAlertsEnabled) {}
+
+    public record SyncedRepoDto(Long id, String owner, String repo, String lastSyncedAt,
+                                String lastResult, String lastStatus) {}
+
+    public record SyncedRepoPageDto(List<SyncedRepoDto> content) {}
+
+    // ---- Dashboard stats (Phase 11): one call feeding the overview page ----
+
+    public record BurndownPointDto(String date, Integer remainingHours, Integer idealHours) {}
+
+    public record BurndownDto(Long sprintId, String sprintName, String startDate, String endDate,
+                              List<BurndownPointDto> history, int totalHours, int remainingHours) {}
+
+    public record GithubTaskStatsDto(int total, int open, int inProgress, int done, int stale) {}
+
+    public record ActivityDto(String actor, String action, String target, String entityId, String occurredAt) {}
+
+    public record SyncedRepoStatusDto(Long id, String owner, String repo,
+                                       String lastSyncedAt, String lastResult, String lastStatus) {}
+
+    public record DashboardStatsDto(
+            int teamCapacityPercent,
+            boolean sprintActive,
+            int activeSprints,
+            int teamMembers,
+            int overallocated,
+            BurndownDto burndown,
+            GithubTaskStatsDto githubTasks,
+            List<ActivityDto> activity,
+            List<SyncedRepoStatusDto> syncedRepos) {}
 
     public record SyncResultDto(int imported, int skipped, List<TaskDto> tasks) {}
 
@@ -82,4 +120,16 @@ public final class Dtos {
     public record LoginResponse(String token, long expiresAtEpochSeconds, UserDto user) {}
 
     public record AuthMeRequest() {}
+
+    /** Self-service profile update (email + role stay admin-managed). */
+    public record ProfileUpdateRequest(
+            @NotBlank(message = "username is required") String username,
+            String githubUsername,
+            @PositiveOrZero(message = "dailyCapacityHours must be zero or more") int dailyCapacityHours) {}
+
+    /** Self-service password change: requires the current password. */
+    public record PasswordChangeRequest(
+            @NotBlank(message = "currentPassword is required") String currentPassword,
+            @NotBlank(message = "newPassword is required")
+            @Size(min = 8, max = 100, message = "newPassword must be between 8 and 100 characters") String newPassword) {}
 }

@@ -4,7 +4,7 @@ import com.agile.capacity.dto.Dtos.SprintDto;
 import com.agile.capacity.dto.Dtos.SprintRequest;
 import com.agile.capacity.dto.Dtos.TaskDto;
 import com.agile.capacity.dto.Dtos.TaskRequest;
-import com.agile.capacity.dto.Dtos.TeamSettingsDto;
+import com.agile.capacity.dto.Dtos.TeamSettingsFullDto;
 import com.agile.capacity.dto.Dtos.TeamSettingsRequest;
 import com.agile.capacity.dto.Dtos.UserDto;
 import com.agile.capacity.dto.Dtos.UserRequest;
@@ -262,14 +262,14 @@ class TrackerServiceTest {
     void getTeamSettingsReadsSeededRow() {
         when(teamSettingsRepository.findById(1L)).thenReturn(Optional.of(settings(6)));
 
-        assertThat(trackerService.getTeamSettings()).isEqualTo(new TeamSettingsDto(6));
+        assertThat(trackerService.getTeamSettings()).isEqualTo(new TeamSettingsFullDto(6, "manual", true, true));
     }
 
     @Test
     void getTeamSettingsDefaultsTo8WhenRowMissing() {
         when(teamSettingsRepository.findById(1L)).thenReturn(Optional.empty());
 
-        assertThat(trackerService.getTeamSettings()).isEqualTo(new TeamSettingsDto(8));
+        assertThat(trackerService.getTeamSettings()).isEqualTo(new TeamSettingsFullDto(8, "manual", true, true));
     }
 
     @Test
@@ -278,19 +278,45 @@ class TrackerServiceTest {
         when(teamSettingsRepository.findById(1L)).thenReturn(Optional.of(existing));
         when(teamSettingsRepository.save(any(TeamSettings.class))).thenAnswer(inv -> inv.getArgument(0));
 
-        TeamSettingsDto dto = trackerService.updateTeamSettings(new TeamSettingsRequest(12));
+        TeamSettingsFullDto dto = trackerService.updateTeamSettings(new TeamSettingsRequest(12, null, null, null));
 
         assertThat(dto.workingHoursPerDay()).isEqualTo(12);
         assertThat(existing.getWorkingHoursPerDay()).isEqualTo(12);
+        // null optional fields preserve existing values
+        assertThat(existing.getSyncFrequency()).isEqualTo("manual");
+        assertThat(dto.syncFrequency()).isEqualTo("manual");
+    }
+
+    @Test
+    void updateTeamSettingsAppliesSyncFrequencyAndAlertToggles() {
+        TeamSettings existing = settings(8);
+        when(teamSettingsRepository.findById(1L)).thenReturn(Optional.of(existing));
+        when(teamSettingsRepository.save(any(TeamSettings.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        TeamSettingsFullDto dto = trackerService.updateTeamSettings(
+                new TeamSettingsRequest(8, "hourly", false, true));
+
+        assertThat(dto.syncFrequency()).isEqualTo("hourly");
+        assertThat(dto.capacityAlertsEnabled()).isFalse();
+        assertThat(dto.underallocationAlertsEnabled()).isTrue();
+        assertThat(existing.getSyncFrequency()).isEqualTo("hourly");
+    }
+
+    @Test
+    void updateTeamSettingsRejectsBadFrequency() {
+        assertThatThrownBy(() -> trackerService.updateTeamSettings(new TeamSettingsRequest(8, "weekly", null, null)))
+                .isInstanceOf(ResponseStatusException.class)
+                .satisfies(e -> assertThat(((ResponseStatusException) e).getStatusCode())
+                        .isEqualTo(HttpStatus.BAD_REQUEST));
     }
 
     @Test
     void updateTeamSettingsRejectsOutOfRangeValues() {
-        assertThatThrownBy(() -> trackerService.updateTeamSettings(new TeamSettingsRequest(0)))
+        assertThatThrownBy(() -> trackerService.updateTeamSettings(new TeamSettingsRequest(0, null, null, null)))
                 .isInstanceOf(ResponseStatusException.class)
                 .satisfies(e -> assertThat(((ResponseStatusException) e).getStatusCode())
                         .isEqualTo(HttpStatus.BAD_REQUEST));
-        assertThatThrownBy(() -> trackerService.updateTeamSettings(new TeamSettingsRequest(25)))
+        assertThatThrownBy(() -> trackerService.updateTeamSettings(new TeamSettingsRequest(25, null, null, null)))
                 .isInstanceOf(ResponseStatusException.class)
                 .satisfies(e -> assertThat(((ResponseStatusException) e).getStatusCode())
                         .isEqualTo(HttpStatus.BAD_REQUEST));
@@ -301,8 +327,8 @@ class TrackerServiceTest {
         when(teamSettingsRepository.findById(1L)).thenReturn(Optional.empty());
         when(teamSettingsRepository.save(any(TeamSettings.class))).thenAnswer(inv -> inv.getArgument(0));
 
-        assertThat(trackerService.updateTeamSettings(new TeamSettingsRequest(7)))
-                .isEqualTo(new TeamSettingsDto(7));
+        assertThat(trackerService.updateTeamSettings(new TeamSettingsRequest(7, "daily", true, false)))
+                .isEqualTo(new TeamSettingsFullDto(7, "daily", true, false));
     }
 
     private TeamSettings settings(int hours) {

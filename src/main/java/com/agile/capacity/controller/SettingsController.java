@@ -1,6 +1,6 @@
 package com.agile.capacity.controller;
 
-import com.agile.capacity.dto.Dtos.TeamSettingsDto;
+import com.agile.capacity.dto.Dtos.TeamSettingsFullDto;
 import com.agile.capacity.dto.Dtos.TeamSettingsRequest;
 import com.agile.capacity.service.TrackerService;
 import jakarta.validation.Valid;
@@ -18,13 +18,13 @@ public class SettingsController {
     }
 
     @GetMapping
-    public TeamSettingsDto get() {
+    public TeamSettingsFullDto get() {
         return trackerService.getTeamSettings();
     }
 
     @PutMapping
     @PreAuthorize("hasRole('ADMIN')")
-    public TeamSettingsDto update(@Valid @RequestBody TeamSettingsRequest request) {
+    public TeamSettingsFullDto update(@Valid @RequestBody TeamSettingsRequest request) {
         return trackerService.updateTeamSettings(request);
     }
 }

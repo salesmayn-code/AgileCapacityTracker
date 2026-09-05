@@ -31,6 +31,14 @@ public class Task {
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
 
+    /** GitHub issue URL for synced tasks (GH-*); null for manual tasks. */
+    @Column(name = "issue_url")
+    private String issueUrl;
+
+    /** When the underlying GitHub issue closed (synced tasks only). */
+    @Column(name = "github_closed_at")
+    private Instant githubClosedAt;
+
     // Getters and Setters
     public String getId() { return id; }
     public void setId(String id) { this.id = id; }
@@ -46,4 +54,8 @@ public class Task {
     public void setSprint(Sprint sprint) { this.sprint = sprint; }
     public Instant getCreatedAt() { return createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }
+    public String getIssueUrl() { return issueUrl; }
+    public void setIssueUrl(String issueUrl) { this.issueUrl = issueUrl; }
+    public Instant getGithubClosedAt() { return githubClosedAt; }
+    public void setGithubClosedAt(Instant githubClosedAt) { this.githubClosedAt = githubClosedAt; }
 }

@@ -10,8 +10,11 @@ A full-stack application for tracking agile team capacity: manage team members, 
 - **Sprint management** — create sprints with start/end dates; task count and total estimated hours are computed live from real task data.
 - **Task tracking** — full CRUD for tasks with hour estimates, status (`open` / `in_progress` / …), assignee, and sprint. Deleting a member or sprint cascades to their tasks.
 - **Capacity dashboard** — per-member *used vs allocated* hours and percentages, average team capacity, overallocation count, and live charts driven by the backend workload API. Sprint length is derived from sprint dates (weekdays only), all math computed server-side.
-- **GitHub issue import** — pull a repository's open issues as tasks using a GitHub PAT, sent per-request from the UI (no token stored server-side). *(See limitations below.)*
-- **Team settings** — working hours per day is a shared server-side setting (admin-managed via the Settings page), driving all capacity math for everyone.
+- **Real-time overview** — one aggregated `/api/dashboard/stats` call drives the overview cards, sprint burndown (ideal vs remaining, from daily snapshots), recent activity feed, and GitHub task stats. No mock data anywhere.
+- **GitHub issue import & auto-sync** — sync a repository's issues (all states, PRs skipped) as tasks; closed issues become `done` with close dates and issue URLs. Every synced repo is remembered and can be re-synced automatically (hourly/daily) with stale-flagging for issues closed >30 days. Estimates and assignments are always preserved on re-sync.
+- **Self-service account** — update your own profile (name, GitHub username, daily hours) and change your password from the Settings page (requires the current password).
+- **Team settings** — working hours per day, GitHub sync frequency, and over/under-allocation alert toggles are shared server-side settings (admin-managed via the Settings page), driving capacity math and the scheduler for everyone.
+- **Observability** — structured JSON logs with per-request IDs (`X-Request-Id`), Actuator metrics/health, and in-memory rate limiting: 5 login attempts/min/IP and 2 GitHub syncs/min/user (429 JSON errors when exceeded).
 
 ## Tech Stack
 
@@ -27,7 +30,7 @@ The repo holds two apps that talk over REST:
 
 ```
 frontend/ (Next.js, port 3000)
-    │  fetch() via NEXT_PUBLIC_API_BASE_URL (default http://localhost:8080)
+    │  same-origin /api/* fetch() → Next.js BFF proxy (httpOnly cookie JWT)
     ▼
 Spring Boot REST API (repo root, port 8080)
     │  Spring Data JPA
@@ -60,9 +63,14 @@ GitHub Issues
 | PUT | `/api/tasks/{id}` | Update task |
 | DELETE | `/api/tasks/{id}` | Delete task |
 | GET | `/api/capacity/workload` | Capacity envelope: `{sprintDays, sprintName, sprintActive, workingHoursPerDay, team[]}` — per-member `allocatedHours`, `usedHours`, `usedPercent`, `allocatedPercent`, all computed server-side |
-| GET | `/api/settings` | Team settings (`workingHoursPerDay`) — any authenticated user |
-| PUT | `/api/settings` | Update team settings — admin only (`workingHoursPerDay`, 1–24) |
-| POST | `/api/github/sync/{owner}/{repo}` | Import a repo's open issues as tasks (idempotent: existing tasks updated in place); optional `X-GitHub-Token` header overrides the server's `GITHUB_API_TOKEN` |
+| GET | `/api/dashboard/stats` | Aggregated overview: capacity %, active sprints, burndown history + ideal line, GitHub task counts, recent activity, synced-repo statuses |
+| GET | `/api/settings` | Team settings (`workingHoursPerDay`, `syncFrequency`, `capacityAlertsEnabled`, `underallocationAlertsEnabled`) — any authenticated user |
+| PUT | `/api/settings` | Update team settings — admin only (`workingHoursPerDay` 1–24; `syncFrequency` manual/hourly/daily; alert toggles) |
+| PUT | `/api/auth/me` | Update own profile (`username`, `githubUsername?`, `dailyCapacityHours?`) — email/role admin-managed |
+| POST | `/api/auth/password` | Change own password (requires `currentPassword`; 401 when wrong) |
+| POST | `/api/github/sync/{owner}/{repo}` | Import a repo's issues as tasks (idempotent: existing tasks updated in place, estimates/assignee preserved; closed → `done`); optional `X-GitHub-Token` header overrides the server's `GITHUB_API_TOKEN` |
+| GET | `/api/github/repos` | Repos remembered from syncs (re-synced by the scheduler) — admin/team_lead |
+| DELETE | `/api/github/repos/{id}` | Remove a repo from auto-sync (tasks untouched) — admin |
 
 ## Authentication
 
@@ -78,7 +86,7 @@ All `/api/**` endpoints (except `POST /api/auth/login`) require a valid **JWT** 
 | GitHub sync | ✅ | ✅ | ❌ |
 | Reads (users/sprints/tasks/workload) | ✅ | ✅ | ✅ |
 
-Anonymous → **401**; wrong role → **403** — both as the standard JSON error body.
+Anonymous → **401**; wrong role → **403**; rate-limit excess → **429** — all as the standard JSON error body. Rate limits: **5 logins/min/IP** and **2 GitHub syncs/min/user** (in-memory sliding window; single-instance by design).
 
 **Accounts are admin-created only** — no self-registration. A bootstrap admin is created/normalized at startup from `ADMIN_EMAIL`/`ADMIN_PASSWORD` (idempotent; skipped when unset).
 
@@ -134,7 +142,7 @@ BACKEND_URL=http://localhost:8080
 mvn spring-boot:run        # http://localhost:8080
 ```
 
-Flyway applies migrations (`V1`–`V4`) at boot; Hibernate runs `ddl-auto=validate` (no auto-DDL).
+Flyway applies migrations (`V1`–`V6`) at boot; Hibernate runs `ddl-auto=validate` (no auto-DDL). V5 adds GitHub sync metadata (issue URLs, close dates, `synced_repository`, settings extensions); V6 adds daily `sprint_snapshot` for burndown history.
 
 ### Run the frontend
 
@@ -154,8 +162,8 @@ Other scripts: `pnpm lint`, `pnpm test` (vitest), `pnpm build`.
 mvn test
 ```
 
-- Unit tests: `TrackerService` (validation + CRUD + team settings), `CapacityService` (workload v2 math), `SprintLengthCalculator` (weekday counts, fallbacks, active-range edges), `GitHubService` (token resolution), `TaskIdGenerator` (id format), `JwtService` (issue/parse/reject), `AuthService` (login, 401s, session resolution)
-- Integration test (`ApiIntegrationTest`): real login flow, anonymous 401s, role matrix 401/403, full CRUD over HTTP, workload v2 envelope (live dates around today), settings auth matrix, cascade deletes, validation/409 error paths
+- Unit tests: `TrackerService` (validation + CRUD + team settings), `CapacityService` (workload v2 math), `SprintLengthCalculator` (weekday counts, fallbacks, active-range edges), `GitHubService` (token resolution, closed-issue handling, staleness, auto-sync), `DashboardService` (stats aggregation), `TaskIdGenerator` (id format), `JwtService` (issue/parse/reject), `AuthService` (login, 401s, profile/password), `RateLimitFilter` (sliding-window math)
+- Integration test (`ApiIntegrationTest`): real login flow, anonymous 401s, role matrix 401/403, full CRUD over HTTP, workload v2 envelope (live dates around today), settings auth matrix, dashboard stats, profile/password flows, request-ID header, synced-repo management, cascade deletes, validation/409 error paths
 
 **Frontend** — Vitest + Testing Library (jsdom):
 
@@ -164,10 +172,11 @@ cd frontend
 pnpm test
 ```
 
-- API client (same-origin paths, request shapes, X-GitHub-Token, workload envelope, error propagation, pagination)
-- Team settings API (GET/PUT `/api/settings`, validation-error surfacing)
-- Auth provider (BFF login/logout/session-restore/rejection through the real flow)
-- BFF route handlers (cookie set/clear, JWT forwarding, upstream error passthrough)
+- API client (same-origin paths, request shapes, X-GitHub-Token, workload envelope, dashboard-stats envelope, profile/password/synced-repo calls, error propagation, pagination)
+- Team settings API (GET/PUT `/api/settings` full shape incl. sync frequency + alert toggles, validation-error surfacing)
+- Auth provider (BFF login/logout/session-restore/rejection, `refreshUser` after profile changes)
+- BFF route handlers (cookie set/clear, JWT forwarding, upstream error passthrough, profile/password proxying)
+- No-mock-data regression (dashboard widgets must fetch real data — no hardcoded arrays)
 
 **CI** — GitHub Actions runs backend `mvn verify` and frontend lint + test + build on every push/PR to `main` (`.github/workflows/ci.yml`). No secrets required: backend tests use H2, frontend tests mock `fetch`.
 
@@ -183,13 +192,16 @@ All capacity math is computed **server-side** (single source of truth); the fron
 - **Working hours per day** — shared team setting (`GET`/`PUT /api/settings`, admin-managed; default 8).
 - **Capacity %** — `usedHours / (sprintDays × workingHoursPerDay) × 100`, delivered per member as `usedPercent`/`allocatedPercent`.
 - **Allocated hours** — `dailyCapacityHours × sprintDays` per member.
-- **GitHub token** — entered on the GitHub page and kept in the browser's `localStorage`; sent per request via the `X-GitHub-Token` header (through the BFF). The backend never stores it.
+- **GitHub token** — entered on the GitHub page and kept in the browser's `localStorage`; sent per request via the `X-GitHub-Token` header (through the BFF). The backend never stores it. Auto-sync (when enabled in settings) uses the server's own `GITHUB_API_TOKEN`.
+- **GitHub sync** — imports all issues (PRs skipped): new ones as `open` 0h tasks; existing ones refresh title/status/URL only (estimates, assignee, sprint untouched); closed issues become `done` with `githubClosedAt` set, and are flagged *stale* in dashboard stats when closed >30 days. Tasks are never deleted on sync.
+- **Schedulers** — daily 23:50 UTC burndown snapshot per active sprint (remaining = non-done estimates); GitHub re-sync hourly or daily 06:00 UTC per the `syncFrequency` team setting (manual = off), each remembered repo in isolation, failures swallowed and recorded per-repo.
 
 ## Known limitations
 
 - **Imported GitHub issues carry no hour estimates** — they import with 0h; set estimates per task (preserved on re-sync).
 - **GitHub PAT lives in browser localStorage** — readable by scripts on the page (XSS surface). The session JWT is httpOnly-cookie-protected, but the GitHub PAT trade-off remains.
 - **No refresh tokens** — 12h JWT expiry; users re-login daily.
+- **Rate limits are per-instance** — in-memory sliding windows; fine for the single App Runner instance, would need a shared store if scaled horizontally.
 
 ## Project structure
 

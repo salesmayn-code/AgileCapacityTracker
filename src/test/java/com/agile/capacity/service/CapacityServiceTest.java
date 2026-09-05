@@ -3,11 +3,9 @@ package com.agile.capacity.service;
 import com.agile.capacity.dto.Dtos.WorkloadDto;
 import com.agile.capacity.dto.Dtos.WorkloadResponseDto;
 import com.agile.capacity.entity.Sprint;
-import com.agile.capacity.entity.TeamSettings;
 import com.agile.capacity.entity.User;
 import com.agile.capacity.repository.SprintRepository;
 import com.agile.capacity.repository.TaskRepository;
-import com.agile.capacity.repository.TeamSettingsRepository;
 import com.agile.capacity.repository.UserRepository;
 import com.agile.capacity.repository.UserStats;
 import org.junit.jupiter.api.Test;
@@ -18,10 +16,8 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.LocalDate;
 import java.util.List;
-import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -37,7 +33,7 @@ class CapacityServiceTest {
     private SprintRepository sprintRepository;
 
     @Mock
-    private TeamSettingsRepository teamSettingsRepository;
+    private TrackerService trackerService;
 
     @InjectMocks
     private CapacityService capacityService;
@@ -49,8 +45,7 @@ class CapacityServiceTest {
         User bob = user(2L, "bob", "developer", 6);
         Sprint active = sprint(10L, "Sprint 1", "2026-09-01", "2026-09-11");
 
-        when(teamSettingsRepository.findById(anyLong()))
-                .thenReturn(Optional.of(settings(6)));
+        when(trackerService.getWorkingHoursPerDay()).thenReturn(6);
         when(sprintRepository.findAll()).thenReturn(List.of(active));
         when(userRepository.findAll()).thenReturn(List.of(alice, bob));
         when(taskRepository.aggregateUserStats()).thenReturn(List.of(
@@ -85,8 +80,7 @@ class CapacityServiceTest {
         Sprint past = sprint(1L, "Past", "2020-01-06", "2020-01-10");
         Sprint future = sprint(2L, "Future", "2999-01-06", "2999-01-10");
 
-        when(teamSettingsRepository.findById(anyLong()))
-                .thenReturn(Optional.of(settings(8)));
+        when(trackerService.getWorkingHoursPerDay()).thenReturn(8);
         when(sprintRepository.findAll()).thenReturn(List.of(past, future));
         when(userRepository.findAll()).thenReturn(List.of(solo));
         when(taskRepository.aggregateUserStats()).thenReturn(List.of());
@@ -108,8 +102,7 @@ class CapacityServiceTest {
         dateless.setId(3L);
         dateless.setName("No dates");
 
-        when(teamSettingsRepository.findById(anyLong()))
-                .thenReturn(Optional.of(settings(8)));
+        when(trackerService.getWorkingHoursPerDay()).thenReturn(8);
         when(sprintRepository.findAll()).thenReturn(List.of(dateless));
         when(userRepository.findAll()).thenReturn(List.of(solo));
         when(taskRepository.aggregateUserStats()).thenReturn(List.of());
@@ -126,8 +119,7 @@ class CapacityServiceTest {
         Sprint late = sprint(5L, "Late", "2026-09-07", "2026-09-18");
         Sprint early = sprint(6L, "Early", "2026-09-01", "2026-09-11");
 
-        when(teamSettingsRepository.findById(anyLong()))
-                .thenReturn(Optional.of(settings(8)));
+        when(trackerService.getWorkingHoursPerDay()).thenReturn(8);
         when(sprintRepository.findAll()).thenReturn(List.of(late, early));
         when(userRepository.findAll()).thenReturn(List.of(solo));
         when(taskRepository.aggregateUserStats()).thenReturn(List.of());
@@ -140,7 +132,7 @@ class CapacityServiceTest {
     @Test
     void settingsDefaultsTo8HoursWhenRowIsMissing() {
         User solo = user(1L, "solo", "developer", 4);
-        when(teamSettingsRepository.findById(anyLong())).thenReturn(Optional.empty());
+        when(trackerService.getWorkingHoursPerDay()).thenReturn(8);
         when(sprintRepository.findAll()).thenReturn(List.of());
         when(userRepository.findAll()).thenReturn(List.of(solo));
         when(taskRepository.aggregateUserStats()).thenReturn(List.of());
@@ -152,8 +144,7 @@ class CapacityServiceTest {
 
     @Test
     void workloadIsEmptyWhenNoUsers() {
-        when(teamSettingsRepository.findById(anyLong()))
-                .thenReturn(Optional.of(settings(8)));
+        when(trackerService.getWorkingHoursPerDay()).thenReturn(8);
         when(sprintRepository.findAll()).thenReturn(List.of());
         when(userRepository.findAll()).thenReturn(List.of());
         when(taskRepository.aggregateUserStats()).thenReturn(List.of());
@@ -168,12 +159,6 @@ class CapacityServiceTest {
         assertThat(workload.sprintName()).isNull();
     }
 
-    private TeamSettings settings(int hours) {
-        TeamSettings settings = new TeamSettings();
-        settings.setId(1L);
-        settings.setWorkingHoursPerDay(hours);
-        return settings;
-    }
 
     private Sprint sprint(Long id, String name, String start, String end) {
         Sprint sprint = new Sprint();
@@ -200,3 +185,4 @@ class CapacityServiceTest {
         };
     }
 }
+

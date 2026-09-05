@@ -212,4 +212,76 @@ describe("api client (same-origin BFF paths)", () => {
       }),
     )
   })
+
+  // ---- Phase 11: dashboard stats, profile, password, synced repos ----
+
+  it("fetches the aggregated dashboard stats envelope", async () => {
+    const stats = {
+      teamCapacityPercent: 62,
+      sprintActive: true,
+      activeSprints: 1,
+      teamMembers: 3,
+      overallocated: 1,
+      burndown: {
+        sprintId: 1,
+        sprintName: "Sprint 1",
+        startDate: "2026-09-01",
+        endDate: "2026-09-14",
+        history: [{ date: "2026-09-01", remainingHours: 40, idealHours: 40 }],
+        totalHours: 40,
+        remainingHours: 40,
+      },
+      githubTasks: { total: 5, open: 2, inProgress: 1, done: 2, stale: 0 },
+      activity: [{ actor: "alice", action: "created task", target: "Fix bug", entityId: "T-1", occurredAt: "2026-09-01T10:00:00Z" }],
+      syncedRepos: [{ id: 1, owner: "octocat", repo: "hello-world", lastSyncedAt: null, lastResult: null, lastStatus: "SUCCESS" }],
+    }
+    mockFetch(200, stats)
+    const result = await api.getDashboardStats()
+    expect(result).toEqual(stats)
+    expect(result.githubTasks.total).toBe(5)
+    const [url] = vi.mocked(fetch).mock.calls[0]
+    expect(url).toBe("/api/dashboard/stats")
+  })
+
+  it("updates the profile via PUT /api/auth/me", async () => {
+    mockFetch(200, { id: 1, username: "newname", email: "a@b.c", role: "developer", githubUsername: "octo", dailyCapacityHours: 6 })
+    const updated = await api.updateProfile({ username: "newname", githubUsername: "octo", dailyCapacityHours: 6 })
+    expect(updated.username).toBe("newname")
+    const [url, init] = vi.mocked(fetch).mock.calls[0]
+    expect(url).toBe("/api/auth/me")
+    expect(init?.method).toBe("PUT")
+    expect(init?.body).toBe(
+      JSON.stringify({ username: "newname", githubUsername: "octo", dailyCapacityHours: 6 }),
+    )
+  })
+
+  it("changes the password via POST /api/auth/password", async () => {
+    mockFetch(204, undefined)
+    await api.changePassword({ currentPassword: "old-pass-1", newPassword: "new-pass-1" })
+    const [url, init] = vi.mocked(fetch).mock.calls[0]
+    expect(url).toBe("/api/auth/password")
+    expect(init?.method).toBe("POST")
+    expect(init?.body).toBe(
+      JSON.stringify({ currentPassword: "old-pass-1", newPassword: "new-pass-1" }),
+    )
+  })
+
+  it("lists synced repos via GET /api/github/repos", async () => {
+    mockFetch(200, [
+      { id: 1, owner: "octocat", repo: "hello-world", lastSyncedAt: null, lastResult: null, lastStatus: "SUCCESS" },
+    ])
+    const repos = await api.listSyncedRepos()
+    expect(repos).toHaveLength(1)
+    expect(repos[0].repo).toBe("hello-world")
+    const [url] = vi.mocked(fetch).mock.calls[0]
+    expect(url).toBe("/api/github/repos")
+  })
+
+  it("removes a synced repo via DELETE /api/github/repos/:id", async () => {
+    mockFetch(204, undefined)
+    await api.removeSyncedRepo(7)
+    const [url, init] = vi.mocked(fetch).mock.calls[0]
+    expect(url).toBe("/api/github/repos/7")
+    expect(init?.method).toBe("DELETE")
+  })
 })

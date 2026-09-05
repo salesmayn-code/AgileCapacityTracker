@@ -1,58 +1,46 @@
 "use client"
 
-import { useEffect, useState } from "react"
-import { useAuth } from "@/components/auth-provider"
-import { api, type SprintDto, type UserDto, type WorkloadResponseDto } from "@/lib/api"
+import { useCallback, useEffect, useState } from "react"
+import { useRouter } from "next/navigation"
+import { api, type DashboardStatsDto } from "@/lib/api"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
+import { Skeleton } from "@/components/ui/skeleton"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { AlertCircle, ArrowRight, BarChart3, Github, Users } from "lucide-react"
 import { TeamCapacityChart } from "@/components/dashboard/team-capacity-chart"
 import { SprintProgress } from "@/components/dashboard/sprint-progress"
 import { RecentActivity } from "@/components/dashboard/recent-activity"
 import { GitHubStats } from "@/components/dashboard/github-stats"
-
-interface Overview {
-  teamCapacityPercent: number | null
-  activeSprints: number
-  githubTasks: number
-  teamMembers: number
-  overallocated: number
-}
+import { NewSprintDialog } from "@/components/new-sprint-dialog"
+import { useAuth } from "@/components/auth-provider"
 
 export default function DashboardPage() {
   const { user } = useAuth()
-  const [overview, setOverview] = useState<Overview | null>(null)
+  const router = useRouter()
+  const [stats, setStats] = useState<DashboardStatsDto | null>(null)
+  const [error, setError] = useState(false)
+  const [alertsEnabled, setAlertsEnabled] = useState(true)
+  const [sprintDialogOpen, setSprintDialogOpen] = useState(false)
 
-  useEffect(() => {
-    let cancelled = false
-    Promise.all([api.getWorkload(), api.allSprints(), api.allUsers(), api.allTasks()])
-      .then(([workload, sprints, users, tasks]: [WorkloadResponseDto, SprintDto[], UserDto[], import("@/lib/api").TaskDto[]]) => {
-        if (cancelled) return
-        const activeSprints = sprints.filter((s) => {
-          if (!s.startDate || !s.endDate) return false
-          const today = new Date()
-          return today >= new Date(s.startDate) && today <= new Date(s.endDate)
-        }).length
-        // Percentages arrive server-computed (Phase 9); the dashboard just averages them
-        const percents = workload.team.map((w) => w.usedPercent)
-        const overallocated = workload.team.filter((w) => w.usedHours > w.allocatedHours).length
-        setOverview({
-          teamCapacityPercent: percents.length ? Math.round(percents.reduce((a, b) => a + b, 0) / percents.length) : null,
-          activeSprints,
-          githubTasks: tasks.filter((t) => t.id.startsWith("GH-")).length,
-          teamMembers: users.length,
-          overallocated,
-        })
-      })
-      .catch(() => {
-        if (!cancelled) setOverview(null)
-      })
-    return () => {
-      cancelled = true
+  const load = useCallback(async () => {
+    try {
+      const [s, settings] = await Promise.all([api.getDashboardStats(), api.getTeamSettings()])
+      setStats(s)
+      setAlertsEnabled(settings.capacityAlertsEnabled)
+      setError(false)
+    } catch {
+      setError(true)
     }
   }, [])
+
+  useEffect(() => {
+    void load()
+  }, [load])
+
+  const githubTasksTotal = stats?.githubTasks.total ?? null
+  const showOverallocated = alertsEnabled && (stats?.overallocated ?? 0) > 0
 
   return (
     <div className="space-y-6">
@@ -62,21 +50,31 @@ export default function DashboardPage() {
           <p className="text-muted-foreground">Overview of your team&apos;s capacity and GitHub activity</p>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline">
+          <Button variant="outline" onClick={() => router.push("/dashboard/github")}>
             <Github className="mr-2 h-4 w-4" />
             Connect GitHub
           </Button>
-          <Button>
+          <Button onClick={() => setSprintDialogOpen(true)}>
             New Sprint <ArrowRight className="ml-2 h-4 w-4" />
           </Button>
         </div>
       </div>
+
+      <NewSprintDialog open={sprintDialogOpen} onOpenChange={setSprintDialogOpen} onCreated={load} />
 
       {!user?.role.includes("admin") && (
         <Alert>
           <AlertCircle className="h-4 w-4" />
           <AlertTitle>GitHub Not Connected</AlertTitle>
           <AlertDescription>Connect your GitHub account on the GitHub page to sync repository issues.</AlertDescription>
+        </Alert>
+      )}
+
+      {error && (
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertTitle>Failed to load dashboard</AlertTitle>
+          <AlertDescription>The server is unreachable or returned an error. Retry to reload the data.</AlertDescription>
         </Alert>
       )}
 
@@ -94,8 +92,14 @@ export default function DashboardPage() {
                 <BarChart3 className="h-4 w-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">{overview?.teamCapacityPercent ?? "—"}{overview?.teamCapacityPercent != null ? "%" : ""}</div>
-                <p className="text-xs text-muted-foreground">average used capacity</p>
+                {stats ? (
+                  <>
+                    <div className="text-2xl font-bold">{stats.teamCapacityPercent}%</div>
+                    <p className="text-xs text-muted-foreground">average used capacity</p>
+                  </>
+                ) : (
+                  <Skeleton className="h-8 w-16" />
+                )}
               </CardContent>
             </Card>
             <Card>
@@ -104,8 +108,14 @@ export default function DashboardPage() {
                 <Users className="h-4 w-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">{overview?.activeSprints ?? "—"}</div>
-                <p className="text-xs text-muted-foreground">currently running</p>
+                {stats ? (
+                  <>
+                    <div className="text-2xl font-bold">{stats.activeSprints}</div>
+                    <p className="text-xs text-muted-foreground">currently running</p>
+                  </>
+                ) : (
+                  <Skeleton className="h-8 w-16" />
+                )}
               </CardContent>
             </Card>
             <Card>
@@ -114,8 +124,14 @@ export default function DashboardPage() {
                 <Github className="h-4 w-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">{overview?.githubTasks ?? "—"}</div>
-                <p className="text-xs text-muted-foreground">synced from repositories</p>
+                {stats ? (
+                  <>
+                    <div className="text-2xl font-bold">{githubTasksTotal}</div>
+                    <p className="text-xs text-muted-foreground">synced from repositories</p>
+                  </>
+                ) : (
+                  <Skeleton className="h-8 w-16" />
+                )}
               </CardContent>
             </Card>
             <Card>
@@ -124,8 +140,16 @@ export default function DashboardPage() {
                 <Users className="h-4 w-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">{overview?.teamMembers ?? "—"}</div>
-                <p className="text-xs text-muted-foreground">{overview ? `${overview.overallocated} overallocated` : ""}</p>
+                {stats ? (
+                  <>
+                    <div className="text-2xl font-bold">{stats.teamMembers}</div>
+                    <p className="text-xs text-muted-foreground">
+                      {showOverallocated ? `${stats.overallocated} overallocated` : "capacity healthy"}
+                    </p>
+                  </>
+                ) : (
+                  <Skeleton className="h-8 w-16" />
+                )}
               </CardContent>
             </Card>
           </div>
@@ -189,6 +213,10 @@ export default function DashboardPage() {
             </CardHeader>
             <CardContent className="space-y-4">
               <p>Open the GitHub page to connect a token and sync repository issues.</p>
+              <Button variant="outline" onClick={() => router.push("/dashboard/github")}>
+                <Github className="mr-2 h-4 w-4" />
+                Go to GitHub Integration
+              </Button>
             </CardContent>
           </Card>
         </TabsContent>

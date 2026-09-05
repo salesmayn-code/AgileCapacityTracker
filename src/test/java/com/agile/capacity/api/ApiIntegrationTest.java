@@ -133,10 +133,10 @@ class ApiIntegrationTest {
                 .isEqualTo(HttpStatus.OK);
         assertThat(rest.getForEntity("/actuator/health/readiness", String.class).getStatusCode())
                 .isEqualTo(HttpStatus.OK);
-        // info is exposed but env/metrics are not (404 when not exposed)
+        // info and metrics are exposed; env is not (404 when not exposed)
         assertThat(rest.getForEntity("/actuator/info", String.class).getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(rest.getForEntity("/actuator/env", String.class).getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
-        assertThat(rest.getForEntity("/actuator/metrics", String.class).getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(rest.getForEntity("/actuator/metrics", String.class).getStatusCode()).isEqualTo(HttpStatus.OK);
     }
 
     @Test
@@ -376,18 +376,26 @@ class ApiIntegrationTest {
         Number devId = createUser(admin, "dev-settings", "dev-settings@test.local", "developer", "dev-pass-1234");
         String dev = login("dev-settings@test.local", "dev-pass-1234");
 
-        // seeded row readable by any authenticated user
+        // full settings readable by any authenticated user (V5 fields present with defaults)
         Map<String, Object> initial = body(get("/api/settings", dev));
         assertThat(initial.get("workingHoursPerDay")).isEqualTo(8);
+        assertThat(initial.get("syncFrequency")).isEqualTo("manual");
+        assertThat(initial.get("capacityAlertsEnabled")).isEqualTo(true);
+        assertThat(initial.get("underallocationAlertsEnabled")).isEqualTo(true);
 
         // developer cannot write
         assertThat(put("/api/settings", dev, Map.of("workingHoursPerDay", 6)).getStatusCode())
                 .isEqualTo(HttpStatus.FORBIDDEN);
 
-        // admin writes and the value flows into the workload envelope
-        ResponseEntity<String> updated = put("/api/settings", admin, Map.of("workingHoursPerDay", 6));
+        // admin writes hours + frequency + toggles; hours flow into the workload envelope
+        ResponseEntity<String> updated = put("/api/settings", admin, Map.of(
+                "workingHoursPerDay", 6, "syncFrequency", "hourly",
+                "capacityAlertsEnabled", false, "underallocationAlertsEnabled", false));
         assertThat(updated.getStatusCode()).isEqualTo(HttpStatus.OK);
-        assertThat(body(updated).get("workingHoursPerDay")).isEqualTo(6);
+        Map<String, Object> updatedBody = body(updated);
+        assertThat(updatedBody.get("workingHoursPerDay")).isEqualTo(6);
+        assertThat(updatedBody.get("syncFrequency")).isEqualTo("hourly");
+        assertThat(updatedBody.get("capacityAlertsEnabled")).isEqualTo(false);
         assertThat(((Number) body(get("/api/capacity/workload", admin)).get("workingHoursPerDay")).intValue())
                 .isEqualTo(6);
 
@@ -396,15 +404,143 @@ class ApiIntegrationTest {
                 .isEqualTo(HttpStatus.BAD_REQUEST);
         assertThat(put("/api/settings", admin, Map.of("workingHoursPerDay", 25)).getStatusCode())
                 .isEqualTo(HttpStatus.BAD_REQUEST);
+        // bad frequency -> 400
+        assertThat(put("/api/settings", admin, Map.of("workingHoursPerDay", 8, "syncFrequency", "weekly"))
+                .getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
 
-        // restore the default for later tests
-        assertThat(put("/api/settings", admin, Map.of("workingHoursPerDay", 8)).getStatusCode())
+        // restore the defaults for later tests
+        assertThat(put("/api/settings", admin, Map.of("workingHoursPerDay", 8, "syncFrequency", "manual",
+                "capacityAlertsEnabled", true, "underallocationAlertsEnabled", true)).getStatusCode())
                 .isEqualTo(HttpStatus.OK);
         assertThat(delete("/api/users/" + devId, admin).getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
     }
 
     @Test
-    @Order(11)
+    @Order(12)
+    void dashboardStatsAggregatesRealData() {
+        String admin = login(ADMIN_EMAIL, ADMIN_PASSWORD);
+        Number userId = createUser(admin, "dashy", "dashy@test.local", "developer", "dashy-pass-12");
+
+        LocalDate today = LocalDate.now();
+        ResponseEntity<String> sprint = post("/api/sprints", admin, Map.of("name", "Dash Sprint",
+                "startDate", today.minusDays(2).toString(), "endDate", today.plusDays(8).toString()));
+        Number sprintId = (Number) body(sprint).get("id");
+
+        post("/api/tasks", admin, Map.of("title", "Dash task A", "estimatedHours", 6,
+                "status", "done", "assignedUserId", userId, "sprintId", sprintId));
+        post("/api/tasks", admin, Map.of("title", "Dash task B", "estimatedHours", 4,
+                "status", "open", "assignedUserId", userId, "sprintId", sprintId));
+
+        Map<String, Object> stats = body(get("/api/dashboard/stats", admin));
+        assertThat(stats.get("sprintActive")).isEqualTo(true);
+        assertThat(((Number) stats.get("activeSprints")).intValue()).isGreaterThanOrEqualTo(1);
+        assertThat(((Number) stats.get("teamMembers")).intValue()).isGreaterThanOrEqualTo(2);
+        assertThat(((Number) stats.get("teamCapacityPercent")).intValue()).isGreaterThanOrEqualTo(0);
+
+        // burndown: active sprint present with total/remaining
+        Map<String, Object> burndown = (Map<String, Object>) stats.get("burndown");
+        assertThat(burndown).isNotNull();
+        assertThat(burndown.get("sprintName")).isEqualTo("Dash Sprint");
+        assertThat(((Number) burndown.get("totalHours")).intValue()).isEqualTo(10);
+        assertThat(((Number) burndown.get("remainingHours")).intValue()).isEqualTo(4); // only open task remains
+        List<Map<String, Object>> history = (List<Map<String, Object>>) burndown.get("history");
+        assertThat(history).isNotEmpty();
+        assertThat(history.get(history.size() - 1).get("remainingHours")).isEqualTo(4);
+        // ideal line present and starts at total
+        assertThat(history.get(0).get("idealHours")).isNotNull();
+
+        // github stats shape (manual tasks only -> zeros)
+        Map<String, Object> gh = (Map<String, Object>) stats.get("githubTasks");
+        assertThat(gh).containsKeys("total", "open", "inProgress", "done", "stale");
+
+        // activity feed contains the sprint/task creations
+        List<Map<String, Object>> activity = (List<Map<String, Object>>) stats.get("activity");
+        assertThat(activity).isNotEmpty();
+        assertThat(activity.size()).isLessThanOrEqualTo(10);
+
+        // synced repos list is empty (no sync in tests) but the key exists
+        assertThat((List<Map<String, Object>>) stats.get("syncedRepos")).isNotNull();
+
+        // cleanup
+        delete("/api/sprints/" + sprintId, admin);
+        delete("/api/users/" + userId, admin);
+    }
+
+    @Test
+    @Order(13)
+    void profileUpdateAndPasswordChangeFlow() {
+        String admin = login(ADMIN_EMAIL, ADMIN_PASSWORD);
+        Number devId = createUser(admin, "profdev", "profdev@test.local", "developer", "prof-pass-123");
+        String dev = login("profdev@test.local", "prof-pass-123");
+
+        // profile update (username, github, capacity); email+role immutable via this route
+        ResponseEntity<String> profile = put("/api/auth/me", dev, Map.of(
+                "username", "profdev-renamed", "githubUsername", "profdev-gh", "dailyCapacityHours", 6));
+        assertThat(profile.getStatusCode()).isEqualTo(HttpStatus.OK);
+        Map<String, Object> profileBody = body(profile);
+        assertThat(profileBody.get("username")).isEqualTo("profdev-renamed");
+        assertThat(profileBody.get("githubUsername")).isEqualTo("profdev-gh");
+        assertThat(((Number) profileBody.get("dailyCapacityHours")).intValue()).isEqualTo(6);
+        assertThat(profileBody.get("email")).isEqualTo("profdev@test.local"); // unchanged
+        assertThat(profileBody.get("role")).isEqualTo("developer");            // unchanged
+
+        // wrong current password -> 401
+        assertThat(post("/api/auth/password", dev, Map.of(
+                "currentPassword", "wrong-pass", "newPassword", "new-pass-456")).getStatusCode())
+                .isEqualTo(HttpStatus.UNAUTHORIZED);
+
+        // correct change -> login with the new password works
+        assertThat(post("/api/auth/password", dev, Map.of(
+                "currentPassword", "prof-pass-123", "newPassword", "new-pass-456")).getStatusCode())
+                .isEqualTo(HttpStatus.OK);
+        String devAgain = login("profdev@test.local", "new-pass-456");
+        assertThat(body(get("/api/auth/me", devAgain)).get("username")).isEqualTo("profdev-renamed");
+
+        // short new password -> 400
+        assertThat(post("/api/auth/password", devAgain, Map.of(
+                "currentPassword", "new-pass-456", "newPassword", "short")).getStatusCode())
+                .isEqualTo(HttpStatus.BAD_REQUEST);
+
+        delete("/api/users/" + devId, admin);
+    }
+
+    @Test
+    @Order(14)
+    void requestIdHeaderIsReturnedOnEveryCall() {
+        String admin = login(ADMIN_EMAIL, ADMIN_PASSWORD);
+        ResponseEntity<String> response = get("/api/settings", admin);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        String requestId = response.getHeaders().getFirst("X-Request-Id");
+        assertThat(requestId).isNotNull().isNotBlank();
+        // caller-provided id is echoed back
+        HttpHeaders headers = json();
+        headers.set("Authorization", "Bearer " + admin);
+        headers.set("X-Request-Id", "my-trace-42");
+        ResponseEntity<String> echoed = rest.exchange("/api/settings", HttpMethod.GET,
+                new HttpEntity<>(headers), String.class);
+        assertThat(echoed.getHeaders().getFirst("X-Request-Id")).isEqualTo("my-trace-42");
+    }
+
+    @Test
+    @Order(15)
+    void syncedRepoManagementAndAuthMatrix() {
+        String admin = login(ADMIN_EMAIL, ADMIN_PASSWORD);
+        Number devId = createUser(admin, "synctest", "synctest@test.local", "developer", "sync-pass-123");
+        String dev = login("synctest@test.local", "sync-pass-123");
+
+        // list is readable by admin/team_lead; developer forbidden
+        assertThat(get("/api/github/repos", admin).getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(get("/api/github/repos", dev).getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+
+        // delete of a nonexistent repo -> 404 (admin-only route; dev forbidden)
+        assertThat(rest.exchange("/api/github/repos/999999", HttpMethod.DELETE,
+                new HttpEntity<>(authed(dev)), String.class).getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+
+        delete("/api/users/" + devId, admin);
+    }
+
+    @Test
+    @Order(16)
     void validationAndDuplicateErrors() {
         String admin = login(ADMIN_EMAIL, ADMIN_PASSWORD);
 
@@ -449,7 +585,7 @@ class ApiIntegrationTest {
     }
 
     @Test
-    @Order(12)
+    @Order(17)
     void syncRouteStillReachableOffline() {
         String admin = login(ADMIN_EMAIL, ADMIN_PASSWORD);
         // No token configured/provided -> service fails fast with 400 before any GitHub call

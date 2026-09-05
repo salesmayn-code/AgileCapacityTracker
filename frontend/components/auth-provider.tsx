@@ -18,6 +18,8 @@ type AuthContextType = {
   login: (email: string, password: string) => Promise<void>
   logout: () => void
   isLoading: boolean
+  /** Re-fetches the session user (after profile changes). */
+  refreshUser: () => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
@@ -49,13 +51,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     // Redirect to login if not authenticated (public routes excluded)
-    if (
-      !isLoading &&
-      !user &&
-      pathname !== "/" &&
-      !pathname.startsWith("/login") &&
-      !pathname.startsWith("/register")
-    ) {
+    if (!isLoading && !user && pathname !== "/" && !pathname.startsWith("/login")) {
       router.push("/login")
     }
   }, [user, isLoading, pathname, router])
@@ -76,7 +72,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     router.push("/login")
   }, [router])
 
-  return <AuthContext.Provider value={{ user, login, logout, isLoading }}>{children}</AuthContext.Provider>
+  const refreshUser = useCallback(async () => {
+    try {
+      const me = await api.me()
+      if (me.email) setUser(me as User)
+    } catch {
+      // keep the current user on transient failures
+    }
+  }, [])
+
+  return (
+    <AuthContext.Provider value={{ user, login, logout, isLoading, refreshUser }}>
+      {children}
+    </AuthContext.Provider>
+  )
 }
 
 export function useAuth() {

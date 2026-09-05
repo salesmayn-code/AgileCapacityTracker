@@ -57,6 +57,31 @@ public class AuthService {
         return toDto(currentUser());
     }
 
+    /** Phase 11 self-service profile update; email and role stay admin-managed. */
+    @org.springframework.transaction.annotation.Transactional
+    public UserDto updateProfile(com.agile.capacity.dto.Dtos.ProfileUpdateRequest request) {
+        User user = currentUser();
+        if (request.username() == null || request.username().isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "username is required");
+        }
+        user.setUsername(request.username());
+        user.setGithubUsername(request.githubUsername());
+        user.setDailyCapacityHours(request.dailyCapacityHours());
+        return toDto(userRepository.save(user));
+    }
+
+    /** Phase 11 self-service password change; verifies the current password first. */
+    @org.springframework.transaction.annotation.Transactional
+    public void changePassword(com.agile.capacity.dto.Dtos.PasswordChangeRequest request) {
+        User user = currentUser();
+        if ("PENDING_SET_BY_ADMIN".equals(user.getPasswordHash())
+                || !passwordEncoder.matches(request.currentPassword(), user.getPasswordHash())) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Current password is incorrect");
+        }
+        user.setPasswordHash(passwordEncoder.encode(request.newPassword()));
+        userRepository.save(user);
+    }
+
     private UserDto toDto(User user) {
         return new UserDto(user.getId(), user.getUsername(), user.getEmail(), user.getRole(),
                 user.getGithubUsername(), user.getDailyCapacityHours());

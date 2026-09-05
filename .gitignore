@@ -44,3 +44,4 @@ build/
 application-local.properties
 *.pem
 *.key
+.opencode/

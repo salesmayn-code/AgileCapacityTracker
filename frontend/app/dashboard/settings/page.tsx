@@ -13,31 +13,113 @@ import { useAuth } from "@/components/auth-provider"
 import { api, getStoredGitHubToken, setStoredGitHubToken } from "@/lib/api"
 
 export default function SettingsPage() {
-  const { user } = useAuth()
+  const { user, refreshUser } = useAuth() as { user: import("@/lib/api").AuthUser | null; refreshUser?: () => void }
   const { toast } = useToast()
-  const [gitHubToken, setGitHubToken] = useState("")
-  const [workingHours, setWorkingHours] = useState("8")
-  const [savingWorkingHours, setSavingWorkingHours] = useState(false)
-  const [emailNotifications, setEmailNotifications] = useState(true)
-  const [capacityAlerts, setCapacityAlerts] = useState(true)
-  const [sprintReminders, setSprintReminders] = useState(true)
   const isAdmin = user?.role === "admin"
+
+  // Account tab
+  const [name, setName] = useState("")
+  const [githubUsername, setGithubUsername] = useState("")
+  const [dailyCapacity, setDailyCapacity] = useState("8")
+  const [savingProfile, setSavingProfile] = useState(false)
+  const [currentPassword, setCurrentPassword] = useState("")
+  const [newPassword, setNewPassword] = useState("")
+  const [confirmPassword, setConfirmPassword] = useState("")
+  const [savingPassword, setSavingPassword] = useState(false)
+
+  // GitHub tab
+  const [gitHubToken, setGitHubToken] = useState("")
+
+  // Capacity tab
+  const [workingHours, setWorkingHours] = useState("8")
+  const [syncFrequency, setSyncFrequency] = useState<"manual" | "hourly" | "daily">("manual")
+  const [capacityAlerts, setCapacityAlerts] = useState(true)
+  const [underallocationAlerts, setUnderallocationAlerts] = useState(true)
+  const [savingCapacity, setSavingCapacity] = useState(false)
 
   useEffect(() => {
     setGitHubToken(getStoredGitHubToken())
     let cancelled = false
     api
       .getTeamSettings()
-      .then((settings) => {
-        if (!cancelled) setWorkingHours(String(settings.workingHoursPerDay))
+      .then((s) => {
+        if (cancelled) return
+        setWorkingHours(String(s.workingHoursPerDay))
+        setSyncFrequency(s.syncFrequency)
+        setCapacityAlerts(s.capacityAlertsEnabled)
+        setUnderallocationAlerts(s.underallocationAlertsEnabled)
       })
       .catch(() => {
-        // keep the 8h default if the server is unreachable
+        // keep defaults if the server is unreachable
       })
     return () => {
       cancelled = true
     }
   }, [])
+
+  useEffect(() => {
+    if (user) {
+      setName(user.username)
+      setDailyCapacity(String((user as unknown as { dailyCapacityHours?: number }).dailyCapacityHours ?? 8))
+    }
+  }, [user])
+
+  const handleSaveProfile = async () => {
+    const hours = Number.parseInt(dailyCapacity, 10)
+    if (!name.trim()) {
+      toast({ title: "Invalid name", description: "Name cannot be empty.", variant: "destructive" })
+      return
+    }
+    if (!Number.isFinite(hours) || hours < 0) {
+      toast({ title: "Invalid value", description: "Daily capacity hours must be zero or more.", variant: "destructive" })
+      return
+    }
+    setSavingProfile(true)
+    try {
+      await api.updateProfile({
+        username: name.trim(),
+        githubUsername: githubUsername.trim() || undefined,
+        dailyCapacityHours: hours,
+      })
+      await refreshUser?.()
+      toast({ title: "Profile saved", description: "Your account details were updated." })
+    } catch (error) {
+      toast({
+        title: "Failed to save profile",
+        description: error instanceof Error ? error.message : "Unknown error",
+        variant: "destructive",
+      })
+    } finally {
+      setSavingProfile(false)
+    }
+  }
+
+  const handleChangePassword = async () => {
+    if (newPassword !== confirmPassword) {
+      toast({ title: "Passwords do not match", description: "New password and confirmation must match.", variant: "destructive" })
+      return
+    }
+    if (newPassword.length < 8) {
+      toast({ title: "Password too short", description: "New password must be at least 8 characters.", variant: "destructive" })
+      return
+    }
+    setSavingPassword(true)
+    try {
+      await api.changePassword({ currentPassword, newPassword })
+      setCurrentPassword("")
+      setNewPassword("")
+      setConfirmPassword("")
+      toast({ title: "Password updated", description: "Use your new password next time you sign in." })
+    } catch (error) {
+      toast({
+        title: "Failed to change password",
+        description: error instanceof Error ? error.message : "Unknown error",
+        variant: "destructive",
+      })
+    } finally {
+      setSavingPassword(false)
+    }
+  }
 
   const handleSaveGitHub = () => {
     setStoredGitHubToken(gitHubToken.trim())
@@ -53,7 +135,7 @@ export default function SettingsPage() {
     if (!isAdmin) {
       toast({
         title: "Read-only",
-        description: "Only administrators can change team capacity settings.",
+        description: "Only administrators can change team settings.",
         variant: "destructive",
       })
       return
@@ -67,30 +149,31 @@ export default function SettingsPage() {
       })
       return
     }
-    setSavingWorkingHours(true)
+    setSavingCapacity(true)
     try {
-      const saved = await api.updateTeamSettings({ workingHoursPerDay: hours })
+      const saved = await api.updateTeamSettings({
+        workingHoursPerDay: hours,
+        syncFrequency,
+        capacityAlertsEnabled: capacityAlerts,
+        underallocationAlertsEnabled: underallocationAlerts,
+      })
       setWorkingHours(String(saved.workingHoursPerDay))
+      setSyncFrequency(saved.syncFrequency)
+      setCapacityAlerts(saved.capacityAlertsEnabled)
+      setUnderallocationAlerts(saved.underallocationAlertsEnabled)
       toast({
-        title: "Capacity settings saved",
+        title: "Settings saved",
         description: `Team capacity now assumes ${saved.workingHoursPerDay} working hours per day.`,
       })
     } catch (error) {
       toast({
-        title: "Failed to save capacity settings",
+        title: "Failed to save settings",
         description: error instanceof Error ? error.message : "Unknown error",
         variant: "destructive",
       })
     } finally {
-      setSavingWorkingHours(false)
+      setSavingCapacity(false)
     }
-  }
-
-  const handleSaveNotifications = () => {
-    toast({
-      title: "Notification settings saved",
-      description: "Your notification preferences have been updated.",
-    })
   }
 
   return (
@@ -105,30 +188,50 @@ export default function SettingsPage() {
           <TabsTrigger value="account">Account</TabsTrigger>
           <TabsTrigger value="github">GitHub Integration</TabsTrigger>
           <TabsTrigger value="capacity">Capacity Tracking</TabsTrigger>
-          <TabsTrigger value="notifications">Notifications</TabsTrigger>
         </TabsList>
         <TabsContent value="account" className="space-y-4">
           <Card>
             <CardHeader>
               <CardTitle>Account Information</CardTitle>
-              <CardDescription>Update your account details and preferences</CardDescription>
+              <CardDescription>Update your profile; email and role are managed by an administrator</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="name">Name</Label>
-                <Input id="name" defaultValue={user?.username} />
+                <Input id="name" value={name} onChange={(e) => setName(e.target.value)} />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="email">Email</Label>
-                <Input id="email" type="email" defaultValue={user?.email} />
+                <Input id="email" type="email" value={user?.email ?? ""} disabled />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="github-username">GitHub Username</Label>
+                <Input
+                  id="github-username"
+                  placeholder="octocat"
+                  value={githubUsername}
+                  onChange={(e) => setGithubUsername(e.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="daily-capacity">Daily Capacity Hours</Label>
+                <Input
+                  id="daily-capacity"
+                  type="number"
+                  min="0"
+                  value={dailyCapacity}
+                  onChange={(e) => setDailyCapacity(e.target.value)}
+                />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="role">Role</Label>
-                <Input id="role" defaultValue={user?.role.replace("_", " ")} disabled />
+                <Input id="role" value={user?.role.replace("_", " ")} disabled />
               </div>
             </CardContent>
             <CardFooter>
-              <Button>Save Changes</Button>
+              <Button onClick={handleSaveProfile} disabled={savingProfile}>
+                {savingProfile ? "Saving…" : "Save Changes"}
+              </Button>
             </CardFooter>
           </Card>
           <Card>
@@ -139,19 +242,36 @@ export default function SettingsPage() {
             <CardContent className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="current-password">Current Password</Label>
-                <Input id="current-password" type="password" />
+                <Input
+                  id="current-password"
+                  type="password"
+                  value={currentPassword}
+                  onChange={(e) => setCurrentPassword(e.target.value)}
+                />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="new-password">New Password</Label>
-                <Input id="new-password" type="password" />
+                <Input
+                  id="new-password"
+                  type="password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="confirm-password">Confirm New Password</Label>
-                <Input id="confirm-password" type="password" />
+                <Input
+                  id="confirm-password"
+                  type="password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                />
               </div>
             </CardContent>
             <CardFooter>
-              <Button>Update Password</Button>
+              <Button onClick={handleChangePassword} disabled={savingPassword || !currentPassword || !newPassword || !confirmPassword}>
+                {savingPassword ? "Updating…" : "Update Password"}
+              </Button>
             </CardFooter>
           </Card>
         </TabsContent>
@@ -172,26 +292,8 @@ export default function SettingsPage() {
                   onChange={(e) => setGitHubToken(e.target.value)}
                 />
                 <p className="text-sm text-muted-foreground">
-                  Create a token with <code>repo</code> and <code>user</code> scopes in your GitHub settings.
+                  Create a token with <code>repo</code> scope in your GitHub settings.
                 </p>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="sync-frequency">Sync Frequency</Label>
-                <Select defaultValue="hourly">
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select frequency" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="realtime">Real-time</SelectItem>
-                    <SelectItem value="hourly">Hourly</SelectItem>
-                    <SelectItem value="daily">Daily</SelectItem>
-                    <SelectItem value="manual">Manual</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="flex items-center space-x-2">
-                <Switch id="auto-sync" defaultChecked />
-                <Label htmlFor="auto-sync">Automatically sync GitHub data</Label>
               </div>
             </CardContent>
             <CardFooter>
@@ -223,81 +325,45 @@ export default function SettingsPage() {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="capacity-calculation">Capacity Calculation Method</Label>
-                <Select defaultValue="github">
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select method" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="github">GitHub Activity</SelectItem>
-                    <SelectItem value="manual">Manual Entry</SelectItem>
-                    <SelectItem value="hybrid">Hybrid</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="flex items-center space-x-2">
-                <Switch id="overallocation" defaultChecked />
-                <Label htmlFor="overallocation">Alert on team member overallocation</Label>
-              </div>
-              <div className="flex items-center space-x-2">
-                <Switch id="underutilization" defaultChecked />
-                <Label htmlFor="underutilization">Alert on team member underutilization</Label>
-              </div>
-            </CardContent>
-            <CardFooter>
-              <Button onClick={handleSaveCapacity} disabled={!isAdmin || savingWorkingHours}>
-                {savingWorkingHours ? "Saving…" : "Save Capacity Settings"}
-              </Button>
-            </CardFooter>
-          </Card>
-        </TabsContent>
-        <TabsContent value="notifications" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Notification Settings</CardTitle>
-              <CardDescription>Configure how and when you receive notifications</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div className="space-y-0.5">
-                  <Label htmlFor="email-notifications">Email Notifications</Label>
-                  <p className="text-sm text-muted-foreground">Receive notifications via email</p>
-                </div>
-                <Switch id="email-notifications" checked={emailNotifications} onCheckedChange={setEmailNotifications} />
-              </div>
-              <div className="flex items-center justify-between">
-                <div className="space-y-0.5">
-                  <Label htmlFor="capacity-alerts">Capacity Alerts</Label>
-                  <p className="text-sm text-muted-foreground">
-                    Get alerts when team members are over or under capacity
-                  </p>
-                </div>
-                <Switch id="capacity-alerts" checked={capacityAlerts} onCheckedChange={setCapacityAlerts} />
-              </div>
-              <div className="flex items-center justify-between">
-                <div className="space-y-0.5">
-                  <Label htmlFor="sprint-reminders">Sprint Reminders</Label>
-                  <p className="text-sm text-muted-foreground">Receive reminders about upcoming sprint deadlines</p>
-                </div>
-                <Switch id="sprint-reminders" checked={sprintReminders} onCheckedChange={setSprintReminders} />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="notification-frequency">Notification Frequency</Label>
-                <Select defaultValue="daily">
+                <Label htmlFor="sync-frequency">GitHub Sync Frequency</Label>
+                <Select value={syncFrequency} onValueChange={(v) => setSyncFrequency(v as "manual" | "hourly" | "daily")} disabled={!isAdmin}>
                   <SelectTrigger>
                     <SelectValue placeholder="Select frequency" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="realtime">Real-time</SelectItem>
+                    <SelectItem value="manual">Manual only</SelectItem>
                     <SelectItem value="hourly">Hourly</SelectItem>
-                    <SelectItem value="daily">Daily Digest</SelectItem>
-                    <SelectItem value="weekly">Weekly Summary</SelectItem>
+                    <SelectItem value="daily">Daily</SelectItem>
                   </SelectContent>
                 </Select>
+                <p className="text-sm text-muted-foreground">
+                  When not manual, the server re-syncs every remembered repository automatically using its own
+                  configured token.
+                </p>
+              </div>
+              <div className="flex items-center space-x-2">
+                <Switch
+                  id="overallocation"
+                  checked={capacityAlerts}
+                  onCheckedChange={setCapacityAlerts}
+                  disabled={!isAdmin}
+                />
+                <Label htmlFor="overallocation">Alert on team member overallocation</Label>
+              </div>
+              <div className="flex items-center space-x-2">
+                <Switch
+                  id="underutilization"
+                  checked={underallocationAlerts}
+                  onCheckedChange={setUnderallocationAlerts}
+                  disabled={!isAdmin}
+                />
+                <Label htmlFor="underutilization">Alert on team member underutilization</Label>
               </div>
             </CardContent>
             <CardFooter>
-              <Button onClick={handleSaveNotifications}>Save Notification Settings</Button>
+              <Button onClick={handleSaveCapacity} disabled={!isAdmin || savingCapacity}>
+                {savingCapacity ? "Saving…" : "Save Capacity Settings"}
+              </Button>
             </CardFooter>
           </Card>
         </TabsContent>

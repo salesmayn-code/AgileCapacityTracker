@@ -49,10 +49,20 @@ describe("team settings API", () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response))
   }
 
-  it("reads shared team settings via GET /api/settings", async () => {
-    mockFetch(200, { workingHoursPerDay: 6 })
+  it("reads shared team settings via GET /api/settings (full Phase 11 shape)", async () => {
+    mockFetch(200, {
+      workingHoursPerDay: 6,
+      syncFrequency: "hourly",
+      capacityAlertsEnabled: false,
+      underallocationAlertsEnabled: true,
+    })
     const settings = await api.getTeamSettings()
-    expect(settings).toEqual({ workingHoursPerDay: 6 })
+    expect(settings).toEqual({
+      workingHoursPerDay: 6,
+      syncFrequency: "hourly",
+      capacityAlertsEnabled: false,
+      underallocationAlertsEnabled: true,
+    })
     const [url] = vi.mocked(fetch).mock.calls[0]
     expect(url).toBe("/api/settings")
   })
@@ -65,6 +75,30 @@ describe("team settings API", () => {
     expect(url).toBe("/api/settings")
     expect(init?.method).toBe("PUT")
     expect(init?.body).toBe(JSON.stringify({ workingHoursPerDay: 7 }))
+  })
+
+  it("sends sync frequency and alert toggles with the settings update", async () => {
+    mockFetch(200, {
+      workingHoursPerDay: 8,
+      syncFrequency: "daily",
+      capacityAlertsEnabled: false,
+      underallocationAlertsEnabled: false,
+    })
+    await api.updateTeamSettings({
+      workingHoursPerDay: 8,
+      syncFrequency: "daily",
+      capacityAlertsEnabled: false,
+      underallocationAlertsEnabled: false,
+    })
+    const [, init] = vi.mocked(fetch).mock.calls[0]
+    expect(init?.body).toBe(
+      JSON.stringify({
+        workingHoursPerDay: 8,
+        syncFrequency: "daily",
+        capacityAlertsEnabled: false,
+        underallocationAlertsEnabled: false,
+      }),
+    )
   })
 
   it("surfaces validation errors from the settings endpoint", async () => {

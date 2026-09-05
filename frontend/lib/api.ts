@@ -69,6 +69,76 @@ export interface TeamSettingsDto {
   workingHoursPerDay: number
 }
 
+/** Phase 11 full settings view: hours + sync frequency + alert toggles. */
+export interface TeamSettingsFullDto {
+  workingHoursPerDay: number
+  syncFrequency: "manual" | "hourly" | "daily"
+  capacityAlertsEnabled: boolean
+  underallocationAlertsEnabled: boolean
+}
+
+export interface TeamSettingsUpdateRequest {
+  workingHoursPerDay: number
+  syncFrequency?: "manual" | "hourly" | "daily"
+  capacityAlertsEnabled?: boolean
+  underallocationAlertsEnabled?: boolean
+}
+
+// ---- Dashboard stats (Phase 11): one call feeding the overview page ----
+
+export interface BurndownPointDto {
+  date: string
+  remainingHours: number | null
+  idealHours: number | null
+}
+
+export interface BurndownDto {
+  sprintId: number | null
+  sprintName: string | null
+  startDate: string | null
+  endDate: string | null
+  history: BurndownPointDto[]
+  totalHours: number
+  remainingHours: number
+}
+
+export interface GithubTaskStatsDto {
+  total: number
+  open: number
+  inProgress: number
+  done: number
+  stale: number
+}
+
+export interface ActivityDto {
+  actor: string
+  action: string
+  target: string
+  entityId: string | null
+  occurredAt: string
+}
+
+export interface SyncedRepoStatusDto {
+  id: number
+  owner: string
+  repo: string
+  lastSyncedAt: string | null
+  lastResult: string | null
+  lastStatus: string
+}
+
+export interface DashboardStatsDto {
+  teamCapacityPercent: number
+  sprintActive: boolean
+  activeSprints: number
+  teamMembers: number
+  overallocated: number
+  burndown: BurndownDto
+  githubTasks: GithubTaskStatsDto
+  activity: ActivityDto[]
+  syncedRepos: SyncedRepoStatusDto[]
+}
+
 export interface SyncResultDto {
   imported: number
   skipped: number
@@ -147,6 +217,12 @@ export const api = {
     request<LoginResponse>("/api/auth/login", { method: "POST", body: JSON.stringify({ email, password }) }),
   logout: () => request<void>("/api/auth/logout", { method: "POST" }),
   me: () => request<AuthUser>("/api/auth/me"),
+  /** Phase 11 self-service profile update (email/role stay admin-managed). */
+  updateProfile: (body: { username: string; githubUsername?: string; dailyCapacityHours?: number }) =>
+    request<UserDto>("/api/auth/me", { method: "PUT", body: JSON.stringify(body) }),
+  /** Phase 11 self-service password change (requires the current password). */
+  changePassword: (body: { currentPassword: string; newPassword: string }) =>
+    request<void>("/api/auth/password", { method: "POST", body: JSON.stringify(body) }),
 
   // Users
   listUsers: (opts?: { page?: number; size?: number }) => {
@@ -221,10 +297,13 @@ export const api = {
   // Capacity
   getWorkload: () => request<WorkloadResponseDto>("/api/capacity/workload"),
 
+  // Dashboard stats (Phase 11): one aggregated call for the overview page
+  getDashboardStats: () => request<DashboardStatsDto>("/api/dashboard/stats"),
+
   // Team settings (shared, server-side; admin-only write)
-  getTeamSettings: () => request<TeamSettingsDto>("/api/settings"),
-  updateTeamSettings: (settings: TeamSettingsDto) =>
-    request<TeamSettingsDto>("/api/settings", { method: "PUT", body: JSON.stringify(settings) }),
+  getTeamSettings: () => request<TeamSettingsFullDto>("/api/settings"),
+  updateTeamSettings: (settings: TeamSettingsUpdateRequest) =>
+    request<TeamSettingsFullDto>("/api/settings", { method: "PUT", body: JSON.stringify(settings) }),
 
   // GitHub (PAT flows via X-GitHub-Token; Authorization is reserved for the session JWT,
   // which the BFF attaches automatically)
@@ -235,6 +314,9 @@ export const api = {
       headers: token ? { "X-GitHub-Token": token } : {},
     })
   },
+  /** Repos remembered from successful syncs; re-synced by the scheduler per settings. */
+  listSyncedRepos: () => request<SyncedRepoStatusDto[]>("/api/github/repos"),
+  removeSyncedRepo: (id: number) => request<void>(`/api/github/repos/${id}`, { method: "DELETE" }),
 }
 
 // ---- settings ----

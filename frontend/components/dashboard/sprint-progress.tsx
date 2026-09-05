@@ -3,100 +3,98 @@
 import { useEffect, useState } from "react"
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts"
 import { Progress } from "@/components/ui/progress"
+import { Skeleton } from "@/components/ui/skeleton"
+import { api, type BurndownPointDto } from "@/lib/api"
 
-// Mock data for the chart
-const mockData = [
-  {
-    day: "Day 1",
-    remaining: 100,
-    ideal: 95,
-  },
-  {
-    day: "Day 2",
-    remaining: 92,
-    ideal: 90,
-  },
-  {
-    day: "Day 3",
-    remaining: 85,
-    ideal: 85,
-  },
-  {
-    day: "Day 4",
-    remaining: 80,
-    ideal: 80,
-  },
-  {
-    day: "Day 5",
-    remaining: 75,
-    ideal: 75,
-  },
-  {
-    day: "Day 6",
-    remaining: 68,
-    ideal: 70,
-  },
-  {
-    day: "Day 7",
-    remaining: 65,
-    ideal: 65,
-  },
-  {
-    day: "Day 8",
-    remaining: 60,
-    ideal: 60,
-  },
-  {
-    day: "Day 9",
-    remaining: 55,
-    ideal: 55,
-  },
-  {
-    day: "Day 10",
-    remaining: 50,
-    ideal: 50,
-  },
-]
+type State = { progress: number; data: BurndownPointDto[]; noSprint: boolean } | null
 
 export function SprintProgress() {
-  const [data] = useState(mockData)
-  const [mounted, setMounted] = useState(false)
+  const [state, setState] = useState<State>(null)
+  const [error, setError] = useState(false)
 
   useEffect(() => {
-    setMounted(true)
+    let cancelled = false
+    api
+      .getDashboardStats()
+      .then((stats) => {
+        if (cancelled) return
+        const b = stats.burndown
+        const noSprint = b.sprintId == null
+        const progress = b.totalHours > 0 ? Math.round(((b.totalHours - b.remainingHours) / b.totalHours) * 100) : 0
+        setState({ progress, data: b.history, noSprint })
+      })
+      .catch(() => {
+        if (!cancelled) setError(true)
+      })
+    return () => {
+      cancelled = true
+    }
   }, [])
 
-  if (!mounted) return null
+  if (error) {
+    return <p className="text-sm text-muted-foreground">Failed to load sprint progress.</p>
+  }
 
-  const progress = 50 // 50% complete
+  if (!state) {
+    return (
+      <div className="space-y-4">
+        <Skeleton className="h-4 w-full" />
+        <Skeleton className="h-[200px] w-full" />
+      </div>
+    )
+  }
+
+  if (state.noSprint) {
+    return (
+      <p className="py-8 text-center text-sm text-muted-foreground">
+        No active sprint. Create one on the Sprints page to start tracking a burndown.
+      </p>
+    )
+  }
+
+  const hasHistory = state.data.some((p) => p.remainingHours != null)
 
   return (
     <div className="space-y-4">
       <div className="space-y-2">
         <div className="flex justify-between text-sm">
           <span>Sprint Progress</span>
-          <span>{progress}%</span>
+          <span>{state.progress}%</span>
         </div>
-        <Progress value={progress} className="h-2" />
+        <Progress value={state.progress} className="h-2" />
       </div>
-      <ResponsiveContainer width="100%" height={200}>
-        <AreaChart
-          data={data}
-          margin={{
-            top: 10,
-            right: 30,
-            left: 0,
-            bottom: 0,
-          }}
-        >
-          <CartesianGrid strokeDasharray="3 3" />
-          <XAxis dataKey="day" />
-          <YAxis />
-          <Tooltip />
-          <Area type="monotone" dataKey="ideal" stroke="#8884d8" fill="#8884d8" fillOpacity={0.1} />
-          <Area type="monotone" dataKey="remaining" stroke="#82ca9d" fill="#82ca9d" fillOpacity={0.3} />
-        </AreaChart>
-      </ResponsiveContainer>
+      {hasHistory ? (
+        <ResponsiveContainer width="100%" height={200}>
+          <AreaChart
+            data={state.data}
+            margin={{
+              top: 10,
+              right: 30,
+              left: 0,
+              bottom: 0,
+            }}
+          >
+            <CartesianGrid strokeDasharray="3 3" />
+            <XAxis dataKey="date" />
+            <YAxis />
+            <Tooltip />
+            <Area type="monotone" dataKey="idealHours" stroke="#8884d8" fill="#8884d8" fillOpacity={0.1} name="Ideal" />
+            <Area
+              type="monotone"
+              dataKey="remainingHours"
+              stroke="#82ca9d"
+              fill="#82ca9d"
+              fillOpacity={0.3}
+              name="Remaining"
+              connectNulls
+            />
+          </AreaChart>
+        </ResponsiveContainer>
+      ) : (
+        <p className="py-6 text-center text-sm text-muted-foreground">
+          No burndown history yet — daily snapshots accumulate while the sprint runs.
+        </p>
+      )}
     </div>
   )
 }
