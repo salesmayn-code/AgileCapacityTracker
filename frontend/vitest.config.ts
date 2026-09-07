@@ -9,6 +9,13 @@ export default defineConfig({
     setupFiles: ["./vitest.setup.ts"],
     include: ["tests/**/*.test.{ts,tsx}"],
     globals: true,
+    coverage: {
+      provider: "v8",
+      include: ["lib/**", "app/api/**", "components/auth-provider.tsx", "components/new-sprint-dialog.tsx"],
+      thresholds: {
+        lines: 60,
+      },
+    },
   },
   resolve: {
     alias: {

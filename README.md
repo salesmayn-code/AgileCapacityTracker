@@ -1,8 +1,12 @@
 # Agile Team Capacity Tracker
 
+[![CI](https://github.com/salesmayn-code/AgileCapacityTracker/actions/workflows/ci.yml/badge.svg)](https://github.com/salesmayn-code/AgileCapacityTracker/actions/workflows/ci.yml)
+[![Release](https://github.com/salesmayn-code/AgileCapacityTracker/actions/workflows/release.yml/badge.svg)](https://github.com/salesmayn-code/AgileCapacityTracker/actions/workflows/release.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 A full-stack application for tracking agile team capacity: manage team members, sprints, and tasks, import GitHub issues, and visualize each member's workload against their allocated capacity.
 
-**Status: work in progress** — the frontend and backend are fully integrated (live CRUD, real authentication via the BFF proxy, and server-computed capacity data). Remaining rough edges are listed under [Known limitations](#known-limitations).
+**Status: v0.1.0** — the full stack runs locally (Docker compose) and is deployment-ready for AWS (App Runner + Amplify + RDS). Remaining rough edges are listed under [Known limitations](#known-limitations); the changelog is [here](CHANGELOG.md).
 
 ## Features
 

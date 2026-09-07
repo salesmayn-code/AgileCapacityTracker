@@ -1,0 +1,41 @@
+# Release workflow (Phase 12): on a pushed v* tag, build the backend jar
+# (tests + coverage gate already ran on main CI; this is the release artifact
+# build) and publish a GitHub Release with the jar attached.
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write # required to create the Release and upload the artifact
+
+jobs:
+  release:
+    name: Build jar and publish GitHub Release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: maven
+
+      - name: Build jar (tests already gated on main; artifact build only)
+        run: mvn --batch-mode -DskipTests package
+
+      - name: Resolve artifact path
+        id: jar
+        run: |
+          jar_path=$(ls target/*.jar | head -n 1)
+          echo "path=$jar_path" >> "$GITHUB_OUTPUT"
+          echo "name=$(basename "$jar_path")" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release with artifact
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: ${{ steps.jar.outputs.path }}

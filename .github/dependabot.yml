@@ -1,0 +1,31 @@
+# Dependabot (Phase 12) — weekly grouped updates.
+# Groups keep related bumps in one PR instead of a drip-feed.
+version: 2
+
+updates:
+  # Backend — Maven (repo root)
+  - package-ecosystem: "maven"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      maven-minor-patch:
+        update-types: ["minor", "patch"]
+
+  # Frontend — pnpm (frontend/)
+  - package-ecosystem: "npm"
+    directory: "/frontend"
+    schedule:
+      interval: "weekly"
+    groups:
+      npm-minor-patch:
+        update-types: ["minor", "patch"]
+
+  # CI/deploy/release workflows
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      actions-minor-patch:
+        update-types: ["minor", "patch"]
