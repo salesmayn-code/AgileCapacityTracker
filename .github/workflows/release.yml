@@ -35,7 +35,7 @@ jobs:
           echo "name=$(basename "$jar_path")" >> "$GITHUB_OUTPUT"
 
       - name: Create GitHub Release with artifact
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           generate_release_notes: true
           files: ${{ steps.jar.outputs.path }}
