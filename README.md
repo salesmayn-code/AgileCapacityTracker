@@ -7,6 +7,17 @@
 A full-stack application for tracking agile team capacity: manage team members, sprints, and tasks, import GitHub issues, and visualize each member's workload against their allocated capacity.
 
 **Status: v0.1.0** — the full stack runs locally (Docker compose) and is deployment-ready for AWS (App Runner + Amplify + RDS). Remaining rough edges are listed under [Known limitations](#known-limitations); the changelog is [here](CHANGELOG.md).
+## Screenshots
+
+| Dashboard | Capacity management |
+| --- | --- |
+| ![Capacity dashboard](docs/screenshots/dashboard.jpg) | ![Capacity management](docs/screenshots/capacity-management.jpg) |
+
+| Sprint planning | Overview |
+| --- | --- |
+| ![Sprint planning](docs/screenshots/sprint-planning.jpg) | ![Overview](docs/screenshots/overview.jpg) |
+
+Screenshots use the local Docker stack and seeded demo data.
 
 ## Features
 
